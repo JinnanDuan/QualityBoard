@@ -13,14 +13,13 @@
 | Node.js    | 18 LTS                               |
 | pnpm       | 10+                                  |
 | MySQL      | 5.7.x（对接已有实例，无需本地安装）   |
-| Nginx      | 1.18+（系统仓库）                    |
 
 ---
 
 ## 2. 系统基础依赖安装
 
 ```bash
-sudo apt update && sudo apt upgrade -y
+sudo apt update
 
 sudo apt install -y \
   build-essential \
@@ -196,31 +195,19 @@ WELINK_APP_SECRET=
 
 ### 4.4 启动后端
 
+推荐使用项目自带脚本（详见第 6 节）：
+
+```bash
+cd /opt/dt-report
+./scripts/start.sh
+```
+
+也可手动启动（前台模式，适合调试）：
+
 ```bash
 cd /opt/dt-report
 source .venv/bin/activate
-
 uvicorn backend.main:app --host 0.0.0.0 --port 8000
-```
-
-如需后台运行：
-
-```bash
-nohup /opt/dt-report/.venv/bin/uvicorn backend.main:app \
-  --host 0.0.0.0 \
-  --port 8000 \
-  --workers 4 \
-  > /opt/dt-report/backend.log 2>&1 &
-```
-
-停止后端：
-
-```bash
-# 查找进程
-ps aux | grep uvicorn
-
-# 终止进程
-kill <PID>
 ```
 
 ### 4.5 验证后端
@@ -250,91 +237,44 @@ pnpm install
 pnpm build
 ```
 
-构建产物位于 `frontend/dist/` 目录，后续由 Nginx 托管。
+构建产物位于 `frontend/dist/` 目录，由 FastAPI 直接托管（无需 Nginx）。
 
 ---
 
-## 6. Nginx 配置
+## 6. 快速启停
 
-### 6.1 安装 Nginx
+项目提供了一组脚本（位于 `scripts/` 目录），封装了所有启停操作。
 
-```bash
-sudo apt install -y nginx
-sudo systemctl start nginx
-sudo systemctl enable nginx
-```
-
-### 6.2 创建站点配置
+### 6.1 首次部署 / 代码更新
 
 ```bash
-sudo vim /etc/nginx/sites-available/dt-report
+cd /opt/dt-report
+./scripts/deploy.sh
 ```
 
-写入以下内容（请将 `your-domain.com` 替换为实际域名或服务器 IP）：
+此脚本会依次：安装后端依赖 -> 构建前端 -> 启动后端。
 
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    # 前端静态资源
-    root /opt/dt-report/frontend/dist;
-    index index.html;
-
-    # 静态资源缓存
-    location /assets/ {
-        expires 30d;
-        add_header Cache-Control "public, immutable";
-    }
-
-    # API 反向代理
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 120s;
-    }
-
-    # Swagger 文档代理（可选，开发/调试时使用）
-    location /docs {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    location /openapi.json {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-    }
-
-    # SPA history fallback
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # 日志
-    access_log /var/log/nginx/dt-report-access.log;
-    error_log  /var/log/nginx/dt-report-error.log;
-}
-```
-
-### 6.3 启用站点并重载 Nginx
+### 6.2 日常启停
 
 ```bash
-# 创建软链接启用站点
-sudo ln -s /etc/nginx/sites-available/dt-report /etc/nginx/sites-enabled/
+# 启动
+./scripts/start.sh
 
-# 如不需要默认站点，可移除
-sudo rm -f /etc/nginx/sites-enabled/default
+# 停止
+./scripts/stop.sh
 
-# 测试配置语法
-sudo nginx -t
+# 重启
+./scripts/restart.sh
 
-# 重载配置
-sudo systemctl reload nginx
+# 查看状态
+./scripts/status.sh
 ```
+
+### 6.3 说明
+
+- 后端通过 uvicorn 运行在 **端口 8000**，同时提供 API 和前端页面
+- PID 文件为项目根目录的 `.pid`，日志文件为 `app.log`
+- 查看实时日志：`tail -f /opt/dt-report/app.log`
 
 ---
 
@@ -346,13 +286,11 @@ sudo systemctl reload nginx
 | ---- | ------------------------ | ------------------------------------------------------ | -------------------------------------------- |
 | 1    | 数据库连通性             | `mysql -u <用户名> -p -h <IP> -P <端口> dt_infra -e "SELECT 1;"` | 返回结果无报错                               |
 | 2    | 数据库表齐全             | `mysql -u <用户名> -p -h <IP> -P <端口> dt_infra -e "SHOW TABLES;"` | 显示 10 张表                                 |
-| 3    | 后端进程运行             | `curl http://localhost:8000/docs`                      | 返回 Swagger UI HTML                         |
-| 4    | 后端 API 路由注册        | `curl -s http://localhost:8000/openapi.json \| python3 -m json.tool \| grep path` | 列出全部 `/api/v1/...` 路由                  |
-| 5    | Nginx 服务运行           | `sudo systemctl status nginx`                          | active (running)                             |
-| 6    | 前端页面可访问           | 浏览器访问 `http://your-domain.com/`                   | 显示左侧导航菜单 + "首页大盘"占位内容       |
-| 7    | SPA 路由正常             | 浏览器访问 `http://your-domain.com/overview`           | 显示"分组执行历史"页面，无 404              |
-| 8    | API 代理正常             | 浏览器访问 `http://your-domain.com/api/v1/dashboard/trend` | 返回 `{"message": "TODO"}`                   |
-| 9    | Swagger 文档可访问       | 浏览器访问 `http://your-domain.com/docs`               | 显示 Swagger UI，含 9 个路由分组             |
+| 3    | 后端进程运行             | `./scripts/status.sh`                                  | 后端进程运行中，端口 8000 已监听             |
+| 4    | Swagger 文档可访问       | 浏览器访问 `http://<服务器IP>:8000/docs`               | 显示 Swagger UI，含 9 个路由分组             |
+| 5    | API 路由正常             | 浏览器访问 `http://<服务器IP>:8000/api/v1/dashboard/trend` | 返回 `{"message": "TODO"}`                   |
+| 6    | 前端页面可访问           | 浏览器访问 `http://<服务器IP>:8000/`                   | 显示左侧导航菜单 + "首页大盘"占位内容       |
+| 7    | SPA 路由正常             | 浏览器访问 `http://<服务器IP>:8000/overview`           | 显示"分组执行历史"页面，无 404               |
 
 ---
 
@@ -380,18 +318,7 @@ pnpm install
 pnpm build
 ```
 
-### Q4: Nginx 返回 502 Bad Gateway
-
-检查后端是否正在运行：
-
-```bash
-ps aux | grep uvicorn
-curl http://localhost:8000/docs
-```
-
-如后端未运行，参照第 4.4 步重新启动。
-
-### Q5: 后端启动时连接数据库失败
+### Q4: 后端启动时连接数据库失败
 
 确认 `.env` 中 `DATABASE_URL` 的用户名、密码、地址、端口、库名是否正确：
 
@@ -412,7 +339,13 @@ mysql -u <用户名> -p -h <数据库IP> -P <端口> dt_infra -e "SELECT 1;"
 /opt/dt-report/
 ├── .env                    # 环境变量（从 .env.example 复制并修改）
 ├── .venv/                  # Python 虚拟环境
-├── backend/                # 后端源码
+├── scripts/                # 启停脚本
+│   ├── deploy.sh           # 首次部署 / 代码更新
+│   ├── start.sh            # 启动后端
+│   ├── stop.sh             # 停止后端
+│   ├── restart.sh          # 重启后端
+│   └── status.sh           # 查看运行状态
+├── backend/                # 后端源码（同时托管前端静态文件）
 │   ├── main.py             # FastAPI 入口
 │   ├── requirements.txt    # Python 依赖
 │   ├── core/               # 配置、数据库、安全
@@ -422,7 +355,7 @@ mysql -u <用户名> -p -h <数据库IP> -P <端口> dt_infra -e "SELECT 1;"
 │   ├── services/           # 业务逻辑
 │   └── utils/              # 工具函数
 ├── frontend/
-│   ├── dist/               # 构建产物（Nginx 托管此目录）
+│   ├── dist/               # 构建产物（由 FastAPI 直接托管）
 │   ├── src/                # 前端源码
 │   └── package.json
 ├── database/               # SQL 迁移脚本

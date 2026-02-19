@@ -35,5 +35,8 @@ Thumbs.db
 backend/data/*
 !backend/data/.gitkeep
 
+# Runtime
+.pid
+
 # Logs
 *.log
