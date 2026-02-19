@@ -1,0 +1,100 @@
+---
+description: dt-report 项目全局开发规则
+alwaysApply: true
+---
+
+# dt-report 项目规则
+
+本项目是团队内部测试用例批量执行结果看板与管理系统。以下规则具有最高优先级，任何代码生成、修改、建议都必须严格遵守。
+
+---
+
+## 一、技术栈（锁定，不可替换）
+
+| 层级 | 技术 | 版本 |
+|------|------|------|
+| 后端 | Python / FastAPI / SQLAlchemy (async) / Pydantic | 3.8 / 0.115 / 2.0 / v2 |
+| 前端 | React / TypeScript / Ant Design / ECharts / React Router | 18 / 5.x / 5 / - / v6 |
+| 数据库 | MySQL | 5.7（禁止使用 8.0+ 语法） |
+| 异步驱动 | aiomysql | - |
+| 构建 | Vite / pnpm | - |
+
+Python 类型标注必须使用 `Optional[X]`，禁止 `X | None`（Python 3.8 不支持）。
+
+---
+
+## 二、数据库红线（违反即回退）
+
+1. **禁止 ALTER / DROP** 已有 8 张表（pipeline_overview, pipeline_history, pipeline_failure_reason, pipeline_cases, ums_email, ums_module_owner, case_failed_type, case_offline_type）。
+2. **禁止 DELETE** pipeline_overview 和 pipeline_history 的数据。
+3. **禁止调用** `Base.metadata.create_all()` 或任何 ORM 自动建表。
+4. **新建表**必须先在 `database/` 下创建 SQL 迁移文件（命名：`V<x>.<y>.<z>__<描述>.sql`），再编写对应 ORM 模型。
+5. **ORM 模型**必须与 `database/*.sql` 中的 DDL 逐字段严格一致（表名、字段名、类型、索引、默认值）。
+6. SQL 仅允许 **MySQL 5.7 语法**。禁止：CHECK 约束、WITH CTE、窗口函数、utf8mb4_0900_ai_ci、JSON_TABLE。
+
+---
+
+## 三、后端编码契约
+
+分层架构：**Model → Schema → Service → API**。新增业务模块必须按此顺序逐层实现。
+
+### Model（`backend/models/`）
+
+- 继承 `backend.models.base.Base`
+- 使用 `Mapped[T]` + `mapped_column()`（SQLAlchemy 2.0 声明式）
+- `__table_args__` 必须包含 `{"extend_existing": True}`
+- 可空字段标注为 `Mapped[Optional[str]]`
+
+### Schema（`backend/schemas/`）
+
+- 继承 `pydantic.BaseModel`
+- 响应模型必须设置 `model_config = {"from_attributes": True}`
+- 查询模型继承 `backend.schemas.common.PageRequest`
+- 字段名与 ORM Model 一一对应
+
+### Service（`backend/services/`）
+
+- 纯 `async def` 函数，不是类
+- 签名：`async def list_xxx(db: AsyncSession, query: XxxQuery) -> Tuple[List[XxxModel], int]`
+- 使用 `select()` 构建查询，动态拼接 `.where()`，分页用 `.offset().limit()`
+- 计数用 `select(func.count()).select_from(stmt.subquery())`
+
+### API（`backend/api/v1/`）
+
+- 每个模块一个 `router = APIRouter(prefix="/xxx", tags=["中文标签"])`
+- 数据库会话通过 `db: AsyncSession = Depends(get_db)` 注入
+- 设置 `response_model=PageResponse[XxxItem]`
+- ORM 转 Schema 使用 `XxxItem.model_validate(orm_obj)`
+
+---
+
+## 四、前端编码契约
+
+### Service（`frontend/src/services/`）
+
+- TypeScript 接口字段与后端 Schema **完全一致**（保持 snake_case）
+- 每个业务模块导出 `xxxApi` 对象，方法返回 `Promise<PageResponse<XxxItem>>`
+- 使用 `request.get/post()` 调用，request 实例来自 `./request.ts`
+
+### Page（`frontend/src/pages/`）
+
+- 默认导出函数组件（`export default function XxxPage()`）
+- 数据加载：`useState` + `useEffect` + async 函数
+- 表格：Ant Design `<Table>` + `ColumnsType<T>` 类型标注 + `rowKey="id"`
+- 分页：对接后端 `PageResponse`，`pagination` 配置 `current / pageSize / total`
+
+---
+
+## 五、通用约束
+
+- 所有用户可见的文字使用**中文**。
+- 不得在代码中硬编码数据库连接信息，一律通过 `.env` + `backend/core/config.py` 读取。
+- 新增 Python 依赖必须写入 `backend/requirements.txt` 并锁定版本号。
+- 新增前端依赖通过 `pnpm add`，禁止使用 npm 或 yarn。
+
+---
+
+## 六、规则执行机制
+
+1. **违规提醒**：当任何操作可能违反上述规则时，必须立即暂停并向开发者发出明确警告，说明即将违反的具体条款，由开发者决定是坚持规则还是调整规则。未经开发者确认，禁止执行违规操作。
+2. **文档同步**：当代码变更导致 `docs/` 目录下的文档描述与实际情况不一致时（如目录结构变化、技术方案调整、新增/删除模块等），必须在同一次变更中同步更新相关文档，确保文档与代码始终一致。
