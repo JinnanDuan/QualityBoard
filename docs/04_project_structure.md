@@ -343,3 +343,63 @@ Service 层 → API 层 (Schema 转换) → JSON 响应 → 前端 Table 渲染
 ```
 
 后续开发其他模块时，遵循相同的分层模式：**Model → Schema → Service → API → 前端页面**。
+
+---
+
+## 十、开发快速上手
+
+### 前提条件
+
+- Python 3.8+（Ubuntu 20.04 系统自带）
+- Node.js 18 LTS（通过 nvm 安装）
+- pnpm 10+
+- 可访问的 MySQL 5.7 数据库（库名 `dt_infra`，含 10 张表）
+
+### 首次部署
+
+```bash
+cd /home/djn/code/dt-report
+
+# 1. 配置数据库连接
+cp .env.example .env
+# 编辑 .env，修改 DATABASE_URL 为实际数据库地址
+
+# 2. 一键部署（安装后端依赖 → 构建前端 → 启动后端）
+bash scripts/deploy.sh
+```
+
+部署完成后访问 `http://localhost:8000` 即可看到前端页面，`http://localhost:8000/docs` 可查看 Swagger API 文档。
+
+### 日常启停
+
+```bash
+bash scripts/start.sh      # 启动
+bash scripts/stop.sh       # 停止
+bash scripts/restart.sh    # 重启
+bash scripts/status.sh     # 查看运行状态
+```
+
+### 修改代码后
+
+- **仅改后端**：`bash scripts/restart.sh` 即可
+- **改了前端**：需要先重新构建前端再重启后端
+
+```bash
+cd frontend && pnpm build && cd ..
+bash scripts/restart.sh
+```
+
+### 前端热更新开发（可选）
+
+如果需要前端代码修改后实时刷新（无需每次手动 build），可以单独启动 Vite 开发服务器：
+
+```bash
+cd frontend
+pnpm dev
+```
+
+此模式下前端运行在 `http://localhost:3000`，API 请求自动代理到后端 `http://localhost:8000`（由 `vite.config.ts` 中的 proxy 配置）。后端仍需在另一个终端中运行。
+
+### 完整部署文档
+
+详见 [部署指南](03_deployment_guide.md)。
