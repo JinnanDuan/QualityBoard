@@ -83,8 +83,10 @@ export default function HistoryPage() {
   };
 
   return (
-    <div style={{ padding: 24 }}>
-      <Title level={4}>详细执行历史</Title>
+    <div style={{ padding: "0 24px 24px" }}>
+      <Title level={4} style={{ marginTop: 0, marginBottom: 16 }}>
+        详细执行历史
+      </Title>
       <Table<HistoryItem>
         rowKey="id"
         columns={columns}

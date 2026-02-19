@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
-import { Layout, Menu, Button, Dropdown, Space, Spin } from "antd";
+import { Layout, Menu, Spin, ConfigProvider, Popover, Button } from "antd";
 import {
   DashboardOutlined,
   UnorderedListOutlined,
@@ -16,7 +16,7 @@ import {
 import type { MenuProps } from "antd";
 import { authApi, CurrentUser } from "../services/auth";
 
-const { Sider, Content, Header } = Layout;
+const { Sider, Content } = Layout;
 
 const allMenuItems: MenuProps["items"] = [
   { key: "/", icon: <DashboardOutlined />, label: "首页大盘" },
@@ -78,15 +78,6 @@ export default function MainLayout() {
     navigate(key);
   };
 
-  const userDropdownItems: MenuProps["items"] = [
-    {
-      key: "logout",
-      icon: <LogoutOutlined />,
-      label: "退出登录",
-      onClick: handleLogout,
-    },
-  ];
-
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center" }}>
@@ -99,30 +90,72 @@ export default function MainLayout() {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
-      <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed}>
-        <div style={{ height: 32, margin: 16, color: "#fff", textAlign: "center", fontWeight: "bold", lineHeight: "32px" }}>
-          {collapsed ? "DT" : "dt-report"}
-        </div>
-        <Menu
-          theme="dark"
-          selectedKeys={[location.pathname]}
-          defaultOpenKeys={["admin"]}
-          mode="inline"
-          items={menuItems}
-          onClick={onMenuClick}
-        />
-      </Sider>
+      <ConfigProvider
+        theme={{
+          components: {
+            Menu: {
+              darkItemBg: "#2e3b7c",
+              darkSubMenuItemBg: "#263170",
+              darkItemSelectedBg: "rgba(102,126,234,0.45)",
+              darkItemHoverBg: "rgba(102,126,234,0.25)",
+              ...(collapsed ? { iconSize: 18, collapsedIconSize: 18 } : {}),
+            },
+            Layout: {
+              triggerBg: "#263170",
+            },
+          },
+        }}
+      >
+        <Sider
+          collapsible
+          collapsed={collapsed}
+          onCollapse={setCollapsed}
+          style={{ background: "#2e3b7c" }}
+        >
+          <div style={{ height: 40, margin: 16, color: "#fff", textAlign: "center", fontWeight: 800, fontSize: 20, lineHeight: "40px" }}>
+            {collapsed ? "DT" : "DT-Report"}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 72px - 48px)" }}>
+            <Menu
+              theme="dark"
+              selectedKeys={[location.pathname]}
+              defaultOpenKeys={["admin"]}
+              mode="inline"
+              items={menuItems}
+              onClick={onMenuClick}
+              style={{ borderRight: "none", flex: 1, overflow: "auto" }}
+            />
+            <Popover
+              trigger="hover"
+              placement="right"
+              mouseEnterDelay={0.1}
+              mouseLeaveDelay={0.3}
+              content={
+                <Button type="link" icon={<LogoutOutlined />} onClick={handleLogout} style={{ padding: 0 }}>
+                  退出登录
+                </Button>
+              }
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: collapsed ? "center" : "flex-start",
+                  gap: 8,
+                  padding: collapsed ? "12px" : "12px 16px",
+                  color: "rgba(255,255,255,0.85)",
+                  cursor: "pointer",
+                  borderTop: "1px solid rgba(255,255,255,0.15)",
+                }}
+              >
+                <UserOutlined style={{ fontSize: collapsed ? 18 : 16 }} />
+                {!collapsed && <span>{currentUser?.name || "用户"}</span>}
+              </div>
+            </Popover>
+          </div>
+        </Sider>
+      </ConfigProvider>
       <Layout>
-        <Header style={{ padding: "0 16px", background: "#fff", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
-          <Dropdown menu={{ items: userDropdownItems }} placement="bottomRight">
-            <Button type="text">
-              <Space>
-                <UserOutlined />
-                {currentUser?.name || "用户"}
-              </Space>
-            </Button>
-          </Dropdown>
-        </Header>
         <Content style={{ margin: 16, padding: 24, background: "#fff", borderRadius: 8 }}>
           <Outlet />
         </Content>

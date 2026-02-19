@@ -50,11 +50,20 @@ export default function LoginPage() {
         }}
       >
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <Title level={3} style={{ marginBottom: 4 }}>
-            dt-report
+          <Title
+            level={2}
+            style={{
+              marginBottom: 4,
+              fontWeight: 800,
+              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+            }}
+          >
+            DT-Report
           </Title>
           <Typography.Text type="secondary">
-            测试用例执行结果看板系统
+            开发自测试管理系统
           </Typography.Text>
         </div>
         <Form<LoginRequest>
