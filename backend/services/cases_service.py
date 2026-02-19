@@ -1,0 +1,2 @@
+class CasesService:
+    pass

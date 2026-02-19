@@ -1,0 +1,2 @@
+class AnalysisService:
+    pass
