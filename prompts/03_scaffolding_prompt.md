@@ -272,3 +272,48 @@ dt-report/
 2. **不编写任何具体业务逻辑**：API 端点函数体为空或仅返回 `{"message": "TODO"}`，service 方法仅 `pass`。
 3. **前端组件不编写具体 UI 实现**：每个 Page 仅返回一行占位文本。
 4. **确保脚手架可启动**：前端 `pnpm dev` 能正常打开页面看到导航菜单和占位内容；后端 `uvicorn` 能正常启动并访问 `/docs` 看到 Swagger UI 及所有路由分组。
+
+# LLM ANSWERS：
+```markdown
+全部完成！以下是脚手架搭建的完整总结：
+
+---
+
+## 脚手架搭建完成
+
+### 已创建的目录结构
+
+**后端（`backend/`）** — 共 40+ 文件：
+- `main.py` — FastAPI 入口，注册 CORS + 路由
+- `core/` — 配置（Pydantic BaseSettings）、异步数据库引擎、JWT 安全、公共依赖
+- `models/` — 10 张表的 ORM 映射（8 张已有表严格按 DDL 反向映射 + 2 张新增表），全部使用 `Optional[]` 兼容 Python 3.8
+- `schemas/` — 9 个业务模块的 Pydantic schema 占位 + `common.py` 分页/响应基类
+- `api/v1/` — 9 个路由模块，含占位端点，统一注册到 `/api/v1` 前缀
+- `services/` — 9 个业务 Service 类占位
+- `utils/audit.py` — 审计日志写入函数签名
+
+**前端（`frontend/`）** — 共 20+ 文件：
+- `package.json` — React 18 + Ant Design 5 + ECharts + React Router v6 + Axios
+- `vite.config.ts` — Vite 构建配置，API 代理到 `localhost:8000`
+- `src/routes/index.tsx` — 集中式路由（严格遵循 Prompt 路由规划）
+- `src/layouts/MainLayout.tsx` — Ant Design Layout + Sider 导航菜单
+- `src/pages/` — 11 个页面组件（空壳占位）
+- `src/services/request.ts` — Axios 实例 + 拦截器骨架
+- `src/types/index.ts` — 与后端 8 张表对齐的 TypeScript 接口
+
+**数据库（`database/`）** — 新增 2 个迁移文件：
+- `V1.0.9__create_sys_audit_log.sql`
+- `V1.1.0__create_report_snapshot.sql`
+
+**根目录**：`.env.example`、`.gitignore`、`README.md`
+
+### 启动验证
+- **后端** `uvicorn backend.main:app --reload` — 启动成功，`/docs` 可见全部 9 个路由分组、18 个占位端点
+- **前端** `pnpm dev` — 启动成功，`http://localhost:3000` 可访问，含完整导航菜单
+
+### 注意事项
+- 当前环境 Python 为 3.8.10，所有模型已使用 `Optional[]` 语法（而非 `str | None`）
+- 已通过 nvm 安装 Node.js 18 用于前端开发
+- ORM 模型严格遵循红线：仅做映射，不调用 `metadata.create_all()`
+
+```
