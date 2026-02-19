@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
-import { Layout, Menu } from "antd";
+import { Layout, Menu, Button, Dropdown, Space, Spin } from "antd";
 import {
   DashboardOutlined,
   UnorderedListOutlined,
@@ -11,12 +11,14 @@ import {
   AppstoreOutlined,
   TagsOutlined,
   BellOutlined,
+  LogoutOutlined,
 } from "@ant-design/icons";
 import type { MenuProps } from "antd";
+import { authApi, CurrentUser } from "../services/auth";
 
 const { Sider, Content, Header } = Layout;
 
-const menuItems: MenuProps["items"] = [
+const allMenuItems: MenuProps["items"] = [
   { key: "/", icon: <DashboardOutlined />, label: "首页大盘" },
   { key: "/overview", icon: <UnorderedListOutlined />, label: "分组执行历史" },
   { key: "/history", icon: <HistoryOutlined />, label: "详细执行历史" },
@@ -36,14 +38,64 @@ const menuItems: MenuProps["items"] = [
   },
 ];
 
+function getMenuItemsByRole(role: string): MenuProps["items"] {
+  if (role === "admin") {
+    return allMenuItems;
+  }
+  return allMenuItems?.filter(
+    (item) => item && "key" in item && item.key !== "/cases" && item.key !== "admin",
+  );
+}
+
 export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    authApi
+      .me()
+      .then((user) => setCurrentUser(user))
+      .catch(() => {
+        localStorage.removeItem("token");
+        navigate("/login", { replace: true });
+      })
+      .finally(() => setLoading(false));
+  }, [navigate]);
+
+  const handleLogout = async () => {
+    try {
+      await authApi.logout();
+    } finally {
+      localStorage.removeItem("token");
+      navigate("/login", { replace: true });
+    }
+  };
 
   const onMenuClick: MenuProps["onClick"] = ({ key }) => {
     navigate(key);
   };
+
+  const userDropdownItems: MenuProps["items"] = [
+    {
+      key: "logout",
+      icon: <LogoutOutlined />,
+      label: "退出登录",
+      onClick: handleLogout,
+    },
+  ];
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center" }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  const menuItems = getMenuItemsByRole(currentUser?.role || "user");
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -61,7 +113,16 @@ export default function MainLayout() {
         />
       </Sider>
       <Layout>
-        <Header style={{ padding: "0 16px", background: "#fff" }} />
+        <Header style={{ padding: "0 16px", background: "#fff", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+          <Dropdown menu={{ items: userDropdownItems }} placement="bottomRight">
+            <Button type="text">
+              <Space>
+                <UserOutlined />
+                {currentUser?.name || "用户"}
+              </Space>
+            </Button>
+          </Dropdown>
+        </Header>
         <Content style={{ margin: 16, padding: 24, background: "#fff", borderRadius: 8 }}>
           <Outlet />
         </Content>

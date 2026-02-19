@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     ADMIN_EMPLOYEE_IDS: List[str] = []
+    MVP_LOGIN_PASSWORD: str = "dt_report_2026"
     CORS_ORIGINS: List[str] = ["*"]
     WELINK_API_URL: str = ""
     WELINK_APP_ID: str = ""

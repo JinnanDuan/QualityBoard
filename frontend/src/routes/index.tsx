@@ -1,4 +1,5 @@
 import { useRoutes, Navigate } from "react-router-dom";
+import type { ReactNode } from "react";
 import MainLayout from "../layouts/MainLayout";
 import DashboardPage from "../pages/dashboard/DashboardPage";
 import OverviewPage from "../pages/overview/OverviewPage";
@@ -12,6 +13,14 @@ import OfflineTypesPage from "../pages/admin/OfflineTypesPage";
 import NotificationPage from "../pages/admin/NotificationPage";
 import LoginPage from "../pages/auth/LoginPage";
 
+function RequireAuth({ children }: { children: ReactNode }) {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+}
+
 export default function AppRoutes() {
   return useRoutes([
     {
@@ -20,7 +29,11 @@ export default function AppRoutes() {
     },
     {
       path: "/",
-      element: <MainLayout />,
+      element: (
+        <RequireAuth>
+          <MainLayout />
+        </RequireAuth>
+      ),
       children: [
         { index: true, element: <DashboardPage /> },
         { path: "overview", element: <OverviewPage /> },

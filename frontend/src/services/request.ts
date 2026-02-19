@@ -19,6 +19,13 @@ request.interceptors.request.use(
 request.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    if (error.response?.status === 401) {
+      const isLoginRequest = error.config?.url?.includes("/auth/login");
+      if (!isLoginRequest) {
+        localStorage.removeItem("token");
+        window.location.href = "/login";
+      }
+    }
     return Promise.reject(error);
   },
 );
