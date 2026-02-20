@@ -3,6 +3,7 @@
 
 INSERT IGNORE INTO `ums_email` (`employee_id`, `name`, `email`, `domain_account`)
 VALUES
-  ('W00001', '张三', 'zhangsan@example.com', 'zhangsan'),
+  ('W00001', '张三丰', 'zhangsan@example.com', 'zhangsan'),
   ('W00002', '李四', 'lisi@example.com',     'lisi'),
-  ('W00003', '王五', 'wangwu@example.com',   'wangwu');
+  ('W00003', '王五', 'wangwu@example.com',   'wangwu'),
+  ('W00004', '司马相如', 'sima@example.com', 'sima');

@@ -112,8 +112,20 @@ export default function MainLayout() {
           onCollapse={setCollapsed}
           style={{ background: "#2e3b7c" }}
         >
-          <div style={{ height: 40, margin: 16, color: "#fff", textAlign: "center", fontWeight: 800, fontSize: 20, lineHeight: "40px" }}>
-            {collapsed ? "DT" : "DT-Report"}
+          <div style={{ height: 40, margin: 16, paddingRight: 8, color: "#fff", textAlign: "center", fontWeight: 800, fontSize: 20, lineHeight: "40px", display: "flex", alignItems: "center", justifyContent: "center", gap: 0, overflow: "visible" }}>
+            <span>DT</span><span
+              style={{
+                overflow: "hidden",
+                display: "inline-block",
+                marginLeft: -3,
+                width: collapsed ? 0 : 82,
+                opacity: collapsed ? 0 : 1,
+                transition: "width 0.2s ease, opacity 0.2s ease",
+                whiteSpace: "nowrap",
+              }}
+            >
+              -Report
+            </span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 72px - 48px)" }}>
             <Menu
@@ -140,16 +152,26 @@ export default function MainLayout() {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: collapsed ? "center" : "flex-start",
+                  justifyContent: "center",
                   gap: 8,
-                  padding: collapsed ? "12px" : "12px 16px",
+                  padding: "12px 16px",
                   color: "rgba(255,255,255,0.85)",
                   cursor: "pointer",
                   borderTop: "1px solid rgba(255,255,255,0.15)",
                 }}
               >
                 <UserOutlined style={{ fontSize: collapsed ? 18 : 16 }} />
-                {!collapsed && <span>{currentUser?.name || "用户"}</span>}
+                <span
+                  style={{
+                    overflow: "hidden",
+                    maxWidth: collapsed ? 0 : 80,
+                    opacity: collapsed ? 0 : 1,
+                    transition: "max-width 0.2s ease, opacity 0.2s ease",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {currentUser?.name || "用户"}
+                </span>
               </div>
             </Popover>
           </div>
