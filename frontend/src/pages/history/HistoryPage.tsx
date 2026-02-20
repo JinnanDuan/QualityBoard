@@ -35,9 +35,13 @@ function UrlLink({
   label: string;
 }) {
   if (url) {
+    const href =
+      url.startsWith("http://") || url.startsWith("https://")
+        ? url
+        : `https://${url}`;
     return (
       <a
-        href={url}
+        href={href}
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}
