@@ -120,12 +120,12 @@ function ResizableTitle(
 
 // 默认列宽（考虑表头与内容，表头不换行，整体稍宽）
 const DEFAULT_WIDTHS: Record<string, number> = {
-  start_time: 160,
+  start_time: 120,
   subtask: 90,
   case_name: 200,
   main_module: 90,
   case_result: 90,
-  case_level: 80,
+  case_level: 100,
   owner: 80,
   analyzed: 90,
   platform: 80,
