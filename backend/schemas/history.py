@@ -8,8 +8,8 @@
 
 # datetime: Python 的日期时间类型，用于 created_at、updated_at 字段
 from datetime import datetime
-# Optional: 表示字段可以为 None（前端 JSON 中会显示为 null）
-from typing import Optional
+# List: 列表类型；Optional: 表示字段可以为 None（前端 JSON 中会显示为 null）
+from typing import List, Optional
 
 # BaseModel: Pydantic 的基类，所有 Schema 都继承它以获得自动校验能力
 from pydantic import BaseModel
@@ -54,9 +54,29 @@ class HistoryItem(BaseModel):
 
 # HistoryQuery — 查询参数模型
 # 继承 PageRequest，自动获得 page 和 page_size 字段。
-# 再额外添加 3 个可选的筛选条件。
-# 前端发请求时: GET /api/v1/history?page=1&page_size=20&case_result=failed&platform=iOS
+# 支持 10 个可选筛选条件，case_name 支持模糊搜索，其余支持多选。
 class HistoryQuery(PageRequest):
-    start_time: Optional[str] = None       # 按轮次筛选（可选）
-    case_result: Optional[str] = None      # 按执行结果筛选（可选）
-    platform: Optional[str] = None         # 按平台筛选（可选）
+    start_time: Optional[List[str]] = None       # 按批次筛选（多选）
+    subtask: Optional[List[str]] = None          # 按分组筛选（多选）
+    case_name: Optional[List[str]] = None        # 按用例名多选（可选）
+    main_module: Optional[List[str]] = None     # 按主模块筛选（多选）
+    case_result: Optional[List[str]] = None     # 按执行结果筛选（多选）
+    case_level: Optional[List[str]] = None       # 按用例级别筛选（多选）
+    owner: Optional[List[str]] = None            # 按负责人筛选（多选）
+    analyzed: Optional[List[int]] = None        # 按是否已分析筛选（多选：1=已分析，0=未分析）
+    platform: Optional[List[str]] = None         # 按平台筛选（多选）
+    code_branch: Optional[List[str]] = None      # 按代码分支筛选（多选）
+
+
+# HistoryFilterOptions — 筛选选项响应模型
+# 供 GET /api/v1/history/options 返回各字段的去重选项
+class HistoryFilterOptions(BaseModel):
+    start_time: List[str] = []
+    subtask: List[str] = []
+    case_name: List[str] = []
+    main_module: List[str] = []
+    case_result: List[str] = []
+    case_level: List[str] = []
+    owner: List[str] = []
+    platform: List[str] = []
+    code_branch: List[str] = []

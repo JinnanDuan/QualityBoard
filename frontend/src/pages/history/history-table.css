@@ -1,0 +1,42 @@
+/* 表头列宽调整：拖动右侧边线，无灰色小图标 */
+.history-table .react-resizable {
+  position: relative;
+}
+.history-table .react-resizable-handle,
+.history-table .react-resizable-handle-e {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  margin: 0;
+  background-image: none !important;
+  background: transparent !important;
+  cursor: col-resize;
+  border-left: 1px solid transparent;
+  transform: none;
+}
+.history-table .react-resizable-handle:hover,
+.history-table .react-resizable-handle-e:hover {
+  border-left-color: transparent;
+}
+/* 蓝线向下微延伸，覆盖表头全高（手柄定位区域可能偏上，但不宜超出底边） */
+.history-table .react-resizable-handle:hover::after,
+.history-table .react-resizable-handle-e:hover::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: -18px;
+  width: 1px;
+  background: #1890ff;
+  pointer-events: none;
+}
+/* 表头不换行 */
+.history-table .ant-table-thead > tr > th {
+  white-space: nowrap;
+}
+/* 行可点击，悬停时高亮 */
+.history-table .ant-table-tbody > tr:hover {
+  background: #f5f7fa !important;
+}

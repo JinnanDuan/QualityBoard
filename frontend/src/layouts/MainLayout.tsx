@@ -180,7 +180,7 @@ export default function MainLayout() {
         </Sider>
       </ConfigProvider>
       <Layout style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        <Content style={{ flex: 1, margin: 16, padding: 24, background: "#fff", borderRadius: 8, overflow: "auto" }}>
+        <Content style={{ flex: 1, margin: "16px 8px", padding: "24px 16px", background: "#fff", borderRadius: 8, overflow: "auto" }}>
           <Outlet />
         </Content>
       </Layout>
