@@ -66,6 +66,8 @@ class HistoryQuery(PageRequest):
     analyzed: Optional[List[int]] = None        # 按是否已分析筛选（多选：1=已分析，0=未分析）
     platform: Optional[List[str]] = None         # 按平台筛选（多选）
     code_branch: Optional[List[str]] = None      # 按代码分支筛选（多选）
+    sort_field: Optional[str] = None             # 排序列（如 start_time, case_name）
+    sort_order: Optional[str] = None             # 排序方向：asc / desc
 
 
 # HistoryFilterOptions — 筛选选项响应模型

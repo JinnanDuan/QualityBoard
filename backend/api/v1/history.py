@@ -70,6 +70,8 @@ async def get_history_list(
     analyzed: Optional[List[int]] = Query(None),       # 筛选是否已分析（多选：1=已分析，0=未分析）
     platform: Optional[List[str]] = Query(None),       # 筛选平台（多选）
     code_branch: Optional[List[str]] = Query(None),    # 筛选代码分支（多选）
+    sort_field: Optional[str] = Query(None),           # 排序列
+    sort_order: Optional[str] = Query(None),           # 排序方向：asc / desc
     # Depends(get_db) 是 FastAPI 的核心特性"依赖注入":
     #   1. 请求进来时，FastAPI 自动调用 get_db() 函数
     #   2. get_db() 创建一个数据库会话（AsyncSession）并返回
@@ -93,6 +95,8 @@ async def get_history_list(
         analyzed=analyzed,
         platform=platform,
         code_branch=code_branch,
+        sort_field=sort_field,
+        sort_order=sort_order,
     )
     # 调用 Service 层的 list_history 函数，传入数据库会话和查询参数
     # await 表示异步等待 — 在等数据库返回结果期间，服务器可以处理其他请求

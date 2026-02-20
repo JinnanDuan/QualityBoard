@@ -44,6 +44,8 @@ export interface HistoryQueryParams {
   analyzed?: number[];
   platform?: string[];
   code_branch?: string[];
+  sort_field?: string;
+  sort_order?: string;
 }
 
 export interface HistoryFilterOptions {
@@ -77,6 +79,8 @@ function toSearchParams(params?: HistoryQueryParams): URLSearchParams {
   appendList("analyzed", params.analyzed);
   appendList("platform", params.platform);
   appendList("code_branch", params.code_branch);
+  if (params.sort_field) p.set("sort_field", params.sort_field);
+  if (params.sort_order) p.set("sort_order", params.sort_order);
   return p;
 }
 

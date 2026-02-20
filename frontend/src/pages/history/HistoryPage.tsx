@@ -173,6 +173,8 @@ export default function HistoryPage() {
       analyzed: getIntList("analyzed"),
       platform: getList("platform"),
       code_branch: getList("code_branch"),
+      sort_field: searchParams.get("sort_field") || undefined,
+      sort_order: searchParams.get("sort_order") || undefined,
     };
   };
 
@@ -195,6 +197,8 @@ export default function HistoryPage() {
       appendList("analyzed", params.analyzed);
       appendList("platform", params.platform);
       appendList("code_branch", params.code_branch);
+      if (params.sort_field) next.set("sort_field", params.sort_field);
+      if (params.sort_order) next.set("sort_order", params.sort_order);
       setSearchParams(next, { replace: true });
     },
     [setSearchParams]
@@ -276,16 +280,29 @@ export default function HistoryPage() {
     setPagination((p) => ({ ...p, current: 1 }));
   };
 
-  const handleTableChange = (pag: TablePaginationConfig) => {
+  const handleTableChange = (
+    pag: TablePaginationConfig,
+    _filters: Record<string, unknown>,
+    sorter: unknown
+  ) => {
     const nextPage = pag.current ?? 1;
     const nextSize = pag.pageSize ?? 20;
     const params = paramsFromUrl();
+    const sort = Array.isArray(sorter) ? (sorter as { field?: string; order?: string }[])[0] : (sorter as { field?: string; order?: string });
+    const sortField = (typeof sort?.field === "string" ? sort.field : undefined) || undefined;
+    const sortOrder =
+      sort?.order === "ascend" ? "asc" : sort?.order === "descend" ? "desc" : undefined;
+    const sortChanged =
+      sortField !== params.sort_field || sortOrder !== params.sort_order;
+    const pageToUse = sortChanged ? 1 : nextPage;
     syncParamsToUrl({
       ...params,
-      page: nextPage,
+      page: pageToUse,
       page_size: nextSize,
+      sort_field: sortField,
+      sort_order: sortOrder,
     });
-    setPagination({ current: nextPage, pageSize: nextSize });
+    setPagination({ current: pageToUse, pageSize: nextSize });
   };
 
   const handleRowClick = (record: HistoryItem) => {
@@ -308,11 +325,22 @@ export default function HistoryPage() {
       "—"
     );
 
+  const sortField = searchParams.get("sort_field") || undefined;
+  const sortOrder =
+    searchParams.get("sort_order") === "asc"
+      ? "ascend"
+      : searchParams.get("sort_order") === "desc"
+        ? "descend"
+        : undefined;
+  const sortOrderFor = (field: string) => (field === sortField ? sortOrder : undefined);
+
   const columns: ColumnsType<HistoryItem> = [
     {
       title: "批次",
       dataIndex: "start_time",
       width: colWidths.start_time,
+      sorter: true,
+      sortOrder: sortOrderFor("start_time"),
       ellipsis: { showTitle: false },
       render: (val: string | null) => ellipsisCell(val),
       onHeaderCell: (col) => ({
@@ -324,6 +352,8 @@ export default function HistoryPage() {
       title: "分组",
       dataIndex: "subtask",
       width: colWidths.subtask,
+      sorter: true,
+      sortOrder: sortOrderFor("subtask"),
       ellipsis: { showTitle: false },
       render: (val: string | null) => ellipsisCell(val),
       onHeaderCell: (col) => ({
@@ -335,6 +365,8 @@ export default function HistoryPage() {
       title: "用例名",
       dataIndex: "case_name",
       width: colWidths.case_name,
+      sorter: true,
+      sortOrder: sortOrderFor("case_name"),
       ellipsis: { showTitle: false },
       render: (val: string | null) => ellipsisCell(val),
       onHeaderCell: (col) => ({
@@ -346,6 +378,8 @@ export default function HistoryPage() {
       title: "主模块",
       dataIndex: "main_module",
       width: colWidths.main_module,
+      sorter: true,
+      sortOrder: sortOrderFor("main_module"),
       ellipsis: { showTitle: false },
       render: (val: string | null) => ellipsisCell(val),
       onHeaderCell: (col) => ({
@@ -357,6 +391,8 @@ export default function HistoryPage() {
       title: "执行结果",
       dataIndex: "case_result",
       width: colWidths.case_result,
+      sorter: true,
+      sortOrder: sortOrderFor("case_result"),
       ellipsis: { showTitle: false },
       render: (val: string | null) => {
         if (!val) return "—";
@@ -376,6 +412,8 @@ export default function HistoryPage() {
       title: "用例级别",
       dataIndex: "case_level",
       width: colWidths.case_level,
+      sorter: true,
+      sortOrder: sortOrderFor("case_level"),
       ellipsis: { showTitle: false },
       render: (val: string | null) => ellipsisCell(val),
       onHeaderCell: (col) => ({
@@ -387,6 +425,8 @@ export default function HistoryPage() {
       title: "负责人",
       dataIndex: "owner",
       width: colWidths.owner,
+      sorter: true,
+      sortOrder: sortOrderFor("owner"),
       ellipsis: { showTitle: false },
       render: (val: string | null) => ellipsisCell(val),
       onHeaderCell: (col) => ({
@@ -398,6 +438,8 @@ export default function HistoryPage() {
       title: "已分析",
       dataIndex: "analyzed",
       width: colWidths.analyzed,
+      sorter: true,
+      sortOrder: sortOrderFor("analyzed"),
       ellipsis: { showTitle: false },
       render: (val: number | null) => {
         const text = val === 1 ? "已分析" : "未分析";
@@ -416,6 +458,8 @@ export default function HistoryPage() {
       title: "平台",
       dataIndex: "platform",
       width: colWidths.platform,
+      sorter: true,
+      sortOrder: sortOrderFor("platform"),
       ellipsis: { showTitle: false },
       render: (val: string | null) => ellipsisCell(val),
       onHeaderCell: (col) => ({
@@ -427,6 +471,8 @@ export default function HistoryPage() {
       title: "代码分支",
       dataIndex: "code_branch",
       width: colWidths.code_branch,
+      sorter: true,
+      sortOrder: sortOrderFor("code_branch"),
       ellipsis: { showTitle: false },
       render: (val: string | null) => ellipsisCell(val),
       onHeaderCell: (col) => ({

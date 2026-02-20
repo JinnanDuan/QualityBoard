@@ -65,8 +65,19 @@ async def list_history(db: AsyncSession, query: HistoryQuery) -> Tuple[List[Pipe
     total = (await db.execute(count_stmt)).scalar() or 0
 
     # ===== 第四步：排序 + 分页 =====
-    # ORDER BY created_at DESC — 按创建时间倒序（最新的排在前面）
-    stmt = stmt.order_by(PipelineHistory.created_at.desc())
+    # 支持按指定列排序，默认 created_at DESC
+    ALLOWED_SORT_FIELDS = {
+        "start_time", "subtask", "case_name", "main_module", "case_result",
+        "case_level", "owner", "analyzed", "platform", "code_branch", "created_at",
+    }
+    sort_col = getattr(PipelineHistory, query.sort_field, None) if query.sort_field else None
+    if sort_col and query.sort_field in ALLOWED_SORT_FIELDS and query.sort_order:
+        if query.sort_order.lower() == "asc":
+            stmt = stmt.order_by(sort_col.asc())
+        else:
+            stmt = stmt.order_by(sort_col.desc())
+    else:
+        stmt = stmt.order_by(PipelineHistory.created_at.desc())
     # offset + limit 实现分页:
     #   offset = (page - 1) * page_size — 跳过前面的记录
     #   limit = page_size — 只取 page_size 条记录
