@@ -15,6 +15,7 @@ import {
 } from "@ant-design/icons";
 import type { MenuProps } from "antd";
 import { authApi, CurrentUser } from "../services/auth";
+import { AuthProvider } from "../contexts/AuthContext";
 
 const { Sider, Content } = Layout;
 
@@ -43,7 +44,7 @@ function getMenuItemsByRole(role: string): MenuProps["items"] {
     return allMenuItems;
   }
   return allMenuItems?.filter(
-    (item) => item && "key" in item && item.key !== "/cases" && item.key !== "admin",
+    (item) => item && "key" in item && item.key !== "/cases" && item.key !== "admin" && item.key !== "/report",
   );
 }
 
@@ -89,6 +90,7 @@ export default function MainLayout() {
   const menuItems = getMenuItemsByRole(currentUser?.role || "user");
 
   return (
+    <AuthProvider user={currentUser}>
     <Layout style={{ minHeight: "100vh", height: "100vh", overflow: "hidden" }}>
       <ConfigProvider
         theme={{
@@ -183,5 +185,6 @@ export default function MainLayout() {
         </Content>
       </Layout>
     </Layout>
+    </AuthProvider>
   );
 }

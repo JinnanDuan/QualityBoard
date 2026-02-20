@@ -1,6 +1,7 @@
 import { useRoutes, Navigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import MainLayout from "../layouts/MainLayout";
+import { useAuth } from "../contexts/AuthContext";
 import DashboardPage from "../pages/dashboard/DashboardPage";
 import OverviewPage from "../pages/overview/OverviewPage";
 import HistoryPage from "../pages/history/HistoryPage";
@@ -17,6 +18,14 @@ function RequireAuth({ children }: { children: ReactNode }) {
   const token = localStorage.getItem("token");
   if (!token) {
     return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+}
+
+function RequireAdmin({ children }: { children: ReactNode }) {
+  const user = useAuth();
+  if (!user || user.role !== "admin") {
+    return <Navigate to="/" replace />;
   }
   return <>{children}</>;
 }
@@ -38,13 +47,62 @@ export default function AppRoutes() {
         { index: true, element: <DashboardPage /> },
         { path: "overview", element: <OverviewPage /> },
         { path: "history", element: <HistoryPage /> },
-        { path: "cases", element: <CasesPage /> },
-        { path: "report/:id?", element: <ReportPage /> },
-        { path: "admin/users", element: <UsersPage /> },
-        { path: "admin/modules", element: <ModulesPage /> },
-        { path: "admin/dict/failed-types", element: <FailedTypesPage /> },
-        { path: "admin/dict/offline-types", element: <OfflineTypesPage /> },
-        { path: "admin/notification", element: <NotificationPage /> },
+        {
+          path: "cases",
+          element: (
+            <RequireAdmin>
+              <CasesPage />
+            </RequireAdmin>
+          ),
+        },
+        {
+          path: "report/:id?",
+          element: (
+            <RequireAdmin>
+              <ReportPage />
+            </RequireAdmin>
+          ),
+        },
+        {
+          path: "admin/users",
+          element: (
+            <RequireAdmin>
+              <UsersPage />
+            </RequireAdmin>
+          ),
+        },
+        {
+          path: "admin/modules",
+          element: (
+            <RequireAdmin>
+              <ModulesPage />
+            </RequireAdmin>
+          ),
+        },
+        {
+          path: "admin/dict/failed-types",
+          element: (
+            <RequireAdmin>
+              <FailedTypesPage />
+            </RequireAdmin>
+          ),
+        },
+        {
+          path: "admin/dict/offline-types",
+          element: (
+            <RequireAdmin>
+              <OfflineTypesPage />
+            </RequireAdmin>
+          ),
+        },
+        {
+          path: "admin/notification",
+          element: (
+            <RequireAdmin>
+              <NotificationPage />
+            </RequireAdmin>
+          ),
+        },
       ],
     },
     { path: "*", element: <Navigate to="/" replace /> },
