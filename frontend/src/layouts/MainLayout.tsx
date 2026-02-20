@@ -89,7 +89,7 @@ export default function MainLayout() {
   const menuItems = getMenuItemsByRole(currentUser?.role || "user");
 
   return (
-    <Layout style={{ minHeight: "100vh" }}>
+    <Layout style={{ minHeight: "100vh", height: "100vh", overflow: "hidden" }}>
       <ConfigProvider
         theme={{
           components: {
@@ -177,8 +177,8 @@ export default function MainLayout() {
           </div>
         </Sider>
       </ConfigProvider>
-      <Layout>
-        <Content style={{ margin: 16, padding: 24, background: "#fff", borderRadius: 8 }}>
+      <Layout style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <Content style={{ flex: 1, margin: 16, padding: 24, background: "#fff", borderRadius: 8, overflow: "auto" }}>
           <Outlet />
         </Content>
       </Layout>
