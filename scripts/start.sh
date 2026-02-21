@@ -18,19 +18,16 @@ fi
 echo "[dt-report] 启动中..."
 cd "$PROJECT_DIR"
 
-nohup "$PROJECT_DIR/.venv/bin/uvicorn" backend.main:app \
-    --host 0.0.0.0 \
-    --port "$PORT" \
-    >> "$LOG_FILE" 2>&1 &
+nohup "$PROJECT_DIR/.venv/bin/python" -m backend.run > /dev/null 2>&1 &
 
 echo $! > "$PID_FILE"
 sleep 2
 
 if kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
     echo "[dt-report] 启动成功 (PID: $(cat "$PID_FILE"), 端口: $PORT)"
-    echo "[dt-report] 日志: $LOG_FILE"
+    echo "[dt-report] 日志: app.log, access.log"
 else
-    echo "[dt-report] 启动失败，请检查日志: $LOG_FILE"
+    echo "[dt-report] 启动失败，请检查 app.log"
     rm -f "$PID_FILE"
     exit 1
 fi

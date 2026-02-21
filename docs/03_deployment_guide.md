@@ -272,9 +272,10 @@ cd /opt/dt-report
 
 ### 6.3 说明
 
-- 后端通过 uvicorn 运行在 **端口 8000**，同时提供 API 和前端页面
-- PID 文件为项目根目录的 `.pid`，日志文件为 `app.log`
-- 查看实时日志：`tail -f /opt/dt-report/app.log`
+- 后端通过 `python -m backend.run` 启动（内部使用 uvicorn），运行在 **端口 8000**，同时提供 API 和前端页面
+- PID 文件为项目根目录的 `.pid`
+- 日志由 Python logging 写入项目根目录：`app.log`（应用层）、`access.log`（访问日志），支持按大小轮转（单文件 10MB，app.log 保留 5 份，access.log 保留 3 份）
+- 查看实时日志：`tail -f /opt/dt-report/app.log` 或 `tail -f /opt/dt-report/access.log`
 
 ---
 

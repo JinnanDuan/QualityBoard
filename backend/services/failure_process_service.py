@@ -2,6 +2,7 @@
 # Failure Process Service — 失败记录标注的业务逻辑层
 # ============================================================
 
+import logging
 from typing import List
 
 from fastapi import HTTPException, status  # HTTP 异常与状态码
@@ -19,6 +20,8 @@ from backend.schemas.failure_process import (
     ModuleItem,
     FailureProcessRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def get_failure_process_options(db: AsyncSession) -> FailureProcessOptions:
@@ -130,4 +133,16 @@ async def process_failure(
             )
             db.add(new_pfr)
 
-    await db.commit()  # 提交事务
+    try:
+        await db.commit()
+        owner_masked = f"{req.owner[:2]}***" if req.owner and len(req.owner) > 2 else "***"
+        logger.info(
+            "失败标注提交成功 记录数=%d failed_type=%s owner=%s analyzer=%s",
+            len(histories),
+            req.failed_type,
+            owner_masked,
+            analyzer_employee_id,
+        )
+    except Exception as e:
+        logger.exception("失败标注提交失败: %s", e)
+        raise

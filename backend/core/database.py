@@ -5,6 +5,8 @@
 # 请求结束后会话自动关闭。这个文件就是用来管理这些会话的。
 # ============================================================
 
+import logging
+
 # SQLAlchemy 是 Python 最流行的 ORM(对象关系映射)库。
 # "async" 前缀表示异步版本 — 不会阻塞其他请求，性能更好。
 # - AsyncSession:    异步数据库会话，用它来执行查询
@@ -17,14 +19,20 @@ from backend.core.config import settings
 
 # 创建异步数据库引擎 — 这是整个应用与 MySQL 通信的"桥梁"
 # - settings.DATABASE_URL: 数据库连接字符串，格式如 mysql+aiomysql://user:password@host:port/dbname
-# - echo=False:           不在控制台打印每条 SQL（设为 True 可用于调试）
+# - echo:                 由 LOG_SQL 控制，为 True 时通过 logging 打印所有 SQL 到 app.log
 # - pool_pre_ping=True:   每次从连接池取连接前先 ping 一下数据库，避免拿到已断开的连接
-engine = create_async_engine(settings.DATABASE_URL, echo=False, pool_pre_ping=True)
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=settings.LOG_SQL,
+    pool_pre_ping=True,
+)
 
 # 创建会话工厂 — 之后每次需要数据库会话时，调用 async_session_factory() 即可得到一个新的 AsyncSession
 # - class_=AsyncSession:      指定工厂生产的会话类型
 # - expire_on_commit=False:   提交事务后不自动让已加载的对象过期（避免提交后再访问字段时触发额外查询）
 async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+logger = logging.getLogger(__name__)
 
 
 # 这是 FastAPI 的"依赖注入"函数 — 后面 API 层会通过 Depends(get_db) 来自动调用它
@@ -33,5 +41,9 @@ async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_o
 #   2. API 函数执行完毕 → yield 之后的代码执行（这里由 async with 自动关闭会话）
 # 这样可以保证：每个请求有独立的会话，请求结束后会话必定被关闭，不会泄漏连接。
 async def get_db() -> AsyncSession:  # type: ignore[misc]
-    async with async_session_factory() as session:
-        yield session
+    try:
+        async with async_session_factory() as session:
+            yield session
+    except Exception as e:
+        logger.exception("数据库会话异常: %s", e)
+        raise

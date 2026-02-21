@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +14,8 @@ from backend.schemas.auth import (
     UserInfo,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def get_user_role(employee_id: str) -> str:
     if employee_id in settings.ADMIN_EMPLOYEE_IDS:
@@ -25,9 +29,11 @@ async def authenticate_user(db: AsyncSession, login_req: LoginRequest) -> LoginR
     user = result.scalars().first()
 
     if user is None:
+        logger.warning("登录失败 employee_id=%s 原因=账号不存在", login_req.employee_id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="账号不存在")
 
     if login_req.password != settings.MVP_LOGIN_PASSWORD:
+        logger.warning("登录失败 employee_id=%s 原因=密码错误", login_req.employee_id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="密码错误")
 
     access_token = create_access_token(subject=user.employee_id)
@@ -40,6 +46,7 @@ async def authenticate_user(db: AsyncSession, login_req: LoginRequest) -> LoginR
         role=role,
     )
 
+    logger.info("登录成功 employee_id=%s role=%s", user.employee_id, role)
     return LoginResponse(access_token=access_token, user=user_info)
 
 
