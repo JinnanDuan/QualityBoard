@@ -904,7 +904,7 @@ export default function HistoryPage() {
         cancelText="取消"
         destroyOnClose
       >
-        {/* 字段顺序：失败类型 → 跟踪人 → 详细原因 → 模块（条件显示） */}
+        {/* 字段顺序：失败类型 → 模块（仅 bug 时显示）→ 跟踪人 → 详细原因 */}
         <Form
           form={processForm}
           layout="vertical"
@@ -953,6 +953,27 @@ export default function HistoryPage() {
               })) ?? []}
             />
           </Form.Item>
+          {/* 仅 failed_type=bug 时显示模块字段，且置于跟踪人之上 */}
+          {processFailedType && isBugType(processFailedType) && (
+            <Form.Item
+              name="module"
+              label="模块"
+              rules={[{ required: true, message: "请选择模块" }]}
+            >
+              <Select
+                placeholder="请选择模块"
+                allowClear
+                showSearch
+                filterOption={(input, option) =>
+                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
+                }
+                options={failureProcessOptions?.modules?.map((m) => ({
+                  label: m.module,
+                  value: m.module,
+                })) ?? []}
+              />
+            </Form.Item>
+          )}
           <Form.Item
             name="owner"
             label="跟踪人"
@@ -982,27 +1003,6 @@ export default function HistoryPage() {
           >
             <Input.TextArea rows={4} placeholder="请输入详细原因" maxLength={2000} showCount />
           </Form.Item>
-          {/* 仅 failed_type=bug 时显示模块字段 */}
-          {processFailedType && isBugType(processFailedType) && (
-              <Form.Item
-                name="module"
-                label="模块"
-                rules={[{ required: true, message: "请选择模块" }]}
-              >
-                <Select
-                  placeholder="请选择模块"
-                  allowClear
-                  showSearch
-                  filterOption={(input, option) =>
-                    (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                  }
-                  options={failureProcessOptions?.modules?.map((m) => ({
-                    label: m.module,
-                    value: m.module,
-                  })) ?? []}
-                />
-              </Form.Item>
-            )}
         </Form>
       </Modal>
 
