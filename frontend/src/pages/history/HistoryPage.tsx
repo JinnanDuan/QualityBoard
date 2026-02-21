@@ -129,6 +129,8 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   case_name: 200,
   main_module: 90,
   case_result: 90,
+  failure_owner: 100,
+  failed_type: 140,
   case_level: 100,
   analyzed: 90,
   platform: 80,
@@ -175,6 +177,8 @@ export default function HistoryPage() {
       analyzed: getIntList("analyzed"),
       platform: getList("platform"),
       code_branch: getList("code_branch"),
+      failure_owner: getList("failure_owner"),
+      failed_type: getList("failed_type"),
       sort_field: searchParams.get("sort_field") || undefined,
       sort_order: searchParams.get("sort_order") || undefined,
     };
@@ -198,6 +202,8 @@ export default function HistoryPage() {
       appendList("analyzed", params.analyzed);
       appendList("platform", params.platform);
       appendList("code_branch", params.code_branch);
+      appendList("failure_owner", params.failure_owner);
+      appendList("failed_type", params.failed_type);
       if (params.sort_field) next.set("sort_field", params.sort_field);
       if (params.sort_order) next.set("sort_order", params.sort_order);
       setSearchParams(next, { replace: true });
@@ -242,6 +248,8 @@ export default function HistoryPage() {
       analyzed: params.analyzed,
       platform: params.platform,
       code_branch: params.code_branch,
+      failure_owner: params.failure_owner,
+      failed_type: params.failed_type,
     });
     setPagination({ current: params.page ?? 1, pageSize: params.page_size ?? 20 });
   }, [searchParams]);
@@ -269,6 +277,8 @@ export default function HistoryPage() {
       analyzed: values.analyzed?.length ? values.analyzed : undefined,
       platform: values.platform?.length ? values.platform : undefined,
       code_branch: values.code_branch?.length ? values.code_branch : undefined,
+      failure_owner: values.failure_owner?.length ? values.failure_owner : undefined,
+      failed_type: values.failed_type?.length ? values.failed_type : undefined,
     };
     syncParamsToUrl(params);
     setPagination((p) => ({ ...p, current: 1 }));
@@ -405,6 +415,28 @@ export default function HistoryPage() {
       onHeaderCell: (col) => ({
         width: colWidths.case_result,
         onResize: handleResize("case_result"),
+      }),
+    },
+    {
+      title: "跟踪人",
+      dataIndex: "failure_owner",
+      width: colWidths.failure_owner,
+      ellipsis: { showTitle: false },
+      render: (val: string | null) => ellipsisCell(val),
+      onHeaderCell: (col) => ({
+        width: colWidths.failure_owner,
+        onResize: handleResize("failure_owner"),
+      }),
+    },
+    {
+      title: "失败原因",
+      dataIndex: "failed_type",
+      width: colWidths.failed_type,
+      ellipsis: { showTitle: false },
+      render: (val: string | null) => ellipsisCell(val),
+      onHeaderCell: (col) => ({
+        width: colWidths.failed_type,
+        onResize: handleResize("failed_type"),
       }),
     },
     {
@@ -687,6 +719,40 @@ export default function HistoryPage() {
             </Form.Item>
           </Col>
           <Col span={4}>
+            <Form.Item name="failure_owner" label="跟踪人" style={{ marginBottom: 8 }}>
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="全部"
+                maxTagCount="responsive"
+                loading={optionsLoading}
+                showSearch
+                autoClearSearchValue={false}
+                filterOption={(input, option) =>
+                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
+                }
+                options={options?.failure_owner?.map((v) => ({ label: v, value: v })) ?? []}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={4}>
+            <Form.Item name="failed_type" label="失败原因" style={{ marginBottom: 8 }}>
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="全部"
+                maxTagCount="responsive"
+                loading={optionsLoading}
+                showSearch
+                autoClearSearchValue={false}
+                filterOption={(input, option) =>
+                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
+                }
+                options={options?.failed_type?.map((v) => ({ label: v, value: v })) ?? []}
+              />
+            </Form.Item>
+          </Col>
+          <Col span={4}>
             <Form.Item label=" " colon={false} style={{ marginBottom: 8 }}>
               <Button type="primary" onClick={handleFilterChange} disabled={loading}>
                 确认
@@ -775,6 +841,27 @@ export default function HistoryPage() {
                 {drawerRecord.code_branch ?? "—"}
               </div>
             </div>
+
+            {drawerRecord.case_result === "failed" && (
+              <>
+                <Divider style={{ margin: "16px 0" }} />
+                <div style={{ marginBottom: 16 }}>
+                  <Text strong style={{ fontSize: 16 }}>
+                    失败归因
+                  </Text>
+                </div>
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <Text strong>跟踪人：</Text>
+                    {drawerRecord.failure_owner ?? "—"}
+                  </div>
+                  <div>
+                    <Text strong>失败原因：</Text>
+                    {drawerRecord.failed_type ?? "—"}
+                  </div>
+                </div>
+              </>
+            )}
 
             <Divider style={{ margin: "16px 0" }} />
 

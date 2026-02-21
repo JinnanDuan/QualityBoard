@@ -69,6 +69,8 @@ async def get_history_list(
     analyzed: Optional[List[int]] = Query(None),       # 筛选是否已分析（多选：1=已分析，0=未分析）
     platform: Optional[List[str]] = Query(None),       # 筛选平台（多选）
     code_branch: Optional[List[str]] = Query(None),    # 筛选代码分支（多选）
+    failure_owner: Optional[List[str]] = Query(None),  # 筛选失败跟踪人（多选）
+    failed_type: Optional[List[str]] = Query(None),    # 筛选失败原因（多选）
     sort_field: Optional[str] = Query(None),           # 排序列
     sort_order: Optional[str] = Query(None),           # 排序方向：asc / desc
     # Depends(get_db) 是 FastAPI 的核心特性"依赖注入":
@@ -93,19 +95,23 @@ async def get_history_list(
         analyzed=analyzed,
         platform=platform,
         code_branch=code_branch,
+        failure_owner=failure_owner,
+        failed_type=failed_type,
         sort_field=sort_field,
         sort_order=sort_order,
     )
     # 调用 Service 层的 list_history 函数，传入数据库会话和查询参数
-    # await 表示异步等待 — 在等数据库返回结果期间，服务器可以处理其他请求
-    # 返回值是一个元组: (items列表, total总数)
+    # 返回值是 (items, total)，items 为 (ph, failure_owner, failed_type) 元组列表
     items, total = await list_history(db, query)
-    # 构建分页响应并返回
-    # HistoryItem.model_validate(item): 把 SQLAlchemy ORM 对象转成 Pydantic Schema 对象
-    #   之所以能这样转，是因为 HistoryItem 设置了 model_config = {"from_attributes": True}
-    # 列表推导式 [... for item in items] 对每个 ORM 对象逐一转换
+    # 组装 HistoryItem：从 ORM 转 Schema，并注入 failure_owner、failed_type
+    result_items = [
+        HistoryItem.model_validate(ph).model_copy(
+            update={"failure_owner": fo, "failed_type": ft}
+        )
+        for ph, fo, ft in items
+    ]
     return PageResponse(
-        items=[HistoryItem.model_validate(item) for item in items],
+        items=result_items,
         total=total,
         page=page,
         page_size=page_size,

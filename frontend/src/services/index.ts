@@ -29,6 +29,8 @@ export interface HistoryItem {
   platform: string | null;
   code_branch: string | null;
   analyzed: number | null;
+  failure_owner: string | null;
+  failed_type: string | null;
 }
 
 export interface HistoryQueryParams {
@@ -43,6 +45,8 @@ export interface HistoryQueryParams {
   analyzed?: number[];
   platform?: string[];
   code_branch?: string[];
+  failure_owner?: string[];
+  failed_type?: string[];
   sort_field?: string;
   sort_order?: string;
 }
@@ -56,6 +60,8 @@ export interface HistoryFilterOptions {
   case_level: string[];
   platform: string[];
   code_branch: string[];
+  failure_owner: string[];
+  failed_type: string[];
 }
 
 // 将多选参数转为 URLSearchParams（key=val1&key=val2），供 FastAPI List 解析
@@ -76,6 +82,8 @@ function toSearchParams(params?: HistoryQueryParams): URLSearchParams {
   appendList("analyzed", params.analyzed);
   appendList("platform", params.platform);
   appendList("code_branch", params.code_branch);
+  appendList("failure_owner", params.failure_owner);
+  appendList("failed_type", params.failed_type);
   if (params.sort_field) p.set("sort_field", params.sort_field);
   if (params.sort_order) p.set("sort_order", params.sort_order);
   return p;

@@ -43,6 +43,8 @@ class HistoryItem(BaseModel):
     platform: Optional[str] = None                # 平台 (Android/iOS/Web)
     code_branch: Optional[str] = None             # 代码分支
     analyzed: Optional[int] = 0                   # 是否已分析 (1=是, 0=否)
+    failure_owner: Optional[str] = None           # 失败跟踪人（来自 pipeline_failure_reason.owner）
+    failed_type: Optional[str] = None             # 失败原因分类（来自 pipeline_failure_reason.failed_type）
 
     # model_config 是 Pydantic v2 的配置方式（替代 v1 的 class Config）
     # "from_attributes": True 的作用：
@@ -65,6 +67,8 @@ class HistoryQuery(PageRequest):
     analyzed: Optional[List[int]] = None        # 按是否已分析筛选（多选：1=已分析，0=未分析）
     platform: Optional[List[str]] = None         # 按平台筛选（多选）
     code_branch: Optional[List[str]] = None      # 按代码分支筛选（多选）
+    failure_owner: Optional[List[str]] = None    # 按失败跟踪人筛选（多选）
+    failed_type: Optional[List[str]] = None      # 按失败原因筛选（多选）
     sort_field: Optional[str] = None             # 排序列（如 start_time, case_name）
     sort_order: Optional[str] = None             # 排序方向：asc / desc
 
@@ -80,3 +84,5 @@ class HistoryFilterOptions(BaseModel):
     case_level: List[str] = []
     platform: List[str] = []
     code_branch: List[str] = []
+    failure_owner: List[str] = []
+    failed_type: List[str] = []
