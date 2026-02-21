@@ -8,6 +8,9 @@ import {
   Drawer,
   Divider,
   Form,
+  Input,  // TextArea 用
+  message,  // 成功/失败提示
+  Modal,  // 标注弹窗
   Row,
   Col,
   Select,
@@ -23,6 +26,8 @@ import {
   type HistoryItem,
   type HistoryFilterOptions,
   type HistoryQueryParams,
+  type FailureProcessOptions,  // 标注弹窗选项
+  type FailureProcessRequest,  // 标注提交请求
 } from "../../services";
 
 const { Text } = Typography;
@@ -150,8 +155,14 @@ export default function HistoryPage() {
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<HistoryItem | null>(null);
   const [form] = Form.useForm();
+  const [processForm] = Form.useForm();  // 标注弹窗表单
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20 });
   const [colWidths, setColWidths] = useState<Record<string, number>>(DEFAULT_WIDTHS);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);  // 勾选的行 id
+  const [processModalVisible, setProcessModalVisible] = useState(false);
+  const [failureProcessOptions, setFailureProcessOptions] = useState<FailureProcessOptions | null>(null);
+  const [processSubmitLoading, setProcessSubmitLoading] = useState(false);
+  const processFailedType = Form.useWatch("failed_type", processForm);  // 监听失败类型，控制模块字段显隐
 
   const paramsFromUrl = (): HistoryQueryParams => {
     const getList = (key: string) => {
@@ -312,7 +323,82 @@ export default function HistoryPage() {
       sort_order: sortOrder,
     });
     setPagination({ current: pageToUse, pageSize: nextSize });
+    setSelectedRowKeys([]);  // 切换分页时清空勾选
   };
+
+  const selectedRows = data.filter((r) => selectedRowKeys.includes(r.id));
+  const hasSelectedFailed = selectedRows.some((r) => r.case_result === "failed");
+  const processBtnEnabled = selectedRowKeys.length > 0 && hasSelectedFailed;  // 至少勾选一条失败记录时可用
+
+  const openProcessModal = async () => {
+    if (!processBtnEnabled) return;
+    setProcessModalVisible(true);
+    try {
+      const opts = await historyApi.failureProcessOptions();
+      setFailureProcessOptions(opts);
+      const firstSelected = selectedRows[0];
+      const defaultModule = firstSelected?.main_module ?? undefined;  // 方案 B：取第一条的 main_module
+      processForm.setFieldsValue({
+        failed_type: undefined,
+        owner: undefined,
+        reason: undefined,
+        module: defaultModule,
+      });
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } }; message?: string };
+      message.error(err?.response?.data?.detail || err?.message || "获取选项失败");
+    }
+  };
+
+  const handleProcessModalOk = async () => {
+    try {
+      const values = await processForm.validateFields();
+      const failedType = values.failed_type as string;
+      const isBug = failedType?.trim().toLowerCase() === "bug";  // bug 匹配：忽略首尾空格、大小写
+      const payload: FailureProcessRequest = {
+        history_ids: selectedRowKeys.map(Number),
+        failed_type: failedType,
+        owner: values.owner,
+        reason: values.reason?.trim() ?? "",
+      };
+      if (isBug && values.module) {
+        payload.module = values.module;
+      }
+      setProcessSubmitLoading(true);
+      await historyApi.failureProcess(payload);
+      message.success("标注成功");
+      setProcessModalVisible(false);
+      processForm.resetFields();
+      setSelectedRowKeys([]);
+      const params = paramsFromUrl();
+      await fetchData({  // 刷新当前页，保持分页与筛选
+        ...params,
+        page: params.page ?? 1,
+        page_size: params.page_size ?? 20,
+      });
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } }; message?: string };
+      const msg = err?.response?.data?.detail || err?.message || "提交失败";
+      if (typeof msg === "string") {
+        message.error(msg);
+      } else if (Array.isArray(msg)) {
+        const parts = (msg as Array<{ msg?: string }>).map((m) => m.msg || "");
+        message.error(parts.join("; "));
+      } else {
+        message.error("提交失败");
+      }
+    } finally {
+      setProcessSubmitLoading(false);
+    }
+  };
+
+  const handleProcessModalCancel = () => {
+    setProcessModalVisible(false);
+    processForm.resetFields();
+  };
+
+  const isBugType = (failedReasonType: string) =>
+    failedReasonType?.trim().toLowerCase() === "bug";  // 仅 bug 时显示模块字段
 
   const handleRowClick = (record: HistoryItem) => {
     setDrawerRecord(record);
@@ -752,15 +838,26 @@ export default function HistoryPage() {
               />
             </Form.Item>
           </Col>
-          <Col span={4}>
-            <Form.Item label=" " colon={false} style={{ marginBottom: 8 }}>
-              <Button type="primary" onClick={handleFilterChange} disabled={loading}>
-                确认
-              </Button>
-              <Button style={{ marginLeft: 8 }} onClick={handleReset} disabled={loading}>
-                重置
-              </Button>
-            </Form.Item>
+        </Row>
+        <Row gutter={16} style={{ marginTop: 8 }}>
+          <Col>
+            <Button type="primary" onClick={handleFilterChange} disabled={loading}>
+              筛选确认
+            </Button>
+          </Col>
+          <Col>
+            <Button onClick={handleReset} disabled={loading}>
+              筛选重置
+            </Button>
+          </Col>
+          <Col>
+            {/* 至少勾选一条失败记录时可用 */}
+            <Button
+              onClick={openProcessModal}
+              disabled={!processBtnEnabled || loading}
+            >
+              分析处理
+            </Button>
           </Col>
         </Row>
       </Form>
@@ -770,6 +867,13 @@ export default function HistoryPage() {
         columns={columns}
         dataSource={data}
         loading={loading}
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys),
+          getCheckboxProps: (record) => ({
+            disabled: record.case_result !== "failed",  // 方案 A：仅 failed 行可勾选
+          }),
+        }}
         components={{
           header: {
             cell: ResizableTitle,
@@ -788,6 +892,119 @@ export default function HistoryPage() {
         scroll={{ x: totalWidth }}
         size="small"
       />
+
+      <Modal
+        title="失败记录标注"
+        width={500}
+        open={processModalVisible}
+        onOk={handleProcessModalOk}
+        onCancel={handleProcessModalCancel}
+        confirmLoading={processSubmitLoading}
+        okText="确定"
+        cancelText="取消"
+        destroyOnClose
+      >
+        {/* 字段顺序：失败类型 → 跟踪人 → 详细原因 → 模块（条件显示） */}
+        <Form
+          form={processForm}
+          layout="vertical"
+          style={{ marginTop: 16 }}
+          onValuesChange={(changed, all) => {
+            // 失败类型变化：更新跟踪人默认值；bug 时显示模块并取 ums_module_owner.owner
+            if ("failed_type" in changed) {
+              const ft = all.failed_type as string;
+              if (!isBugType(ft)) {
+                processForm.setFieldValue("module", undefined);
+                const cft = failureProcessOptions?.case_failed_types?.find(
+                  (t) => t.failed_reason_type === ft
+                );
+                processForm.setFieldValue("owner", cft?.owner ?? undefined);
+              } else {
+                const firstSelected = selectedRows[0];
+                const defaultModule = firstSelected?.main_module ?? undefined;  // 方案 B
+                processForm.setFieldValue("module", defaultModule);
+                const modItem = defaultModule
+                  ? failureProcessOptions?.modules?.find((m) => m.module === defaultModule)
+                  : undefined;
+                processForm.setFieldValue("owner", modItem?.owner ?? undefined);
+              }
+            }
+            if ("module" in changed && isBugType(all.failed_type as string)) {
+              // 模块变化时，跟踪人默认值改为 ums_module_owner.owner
+              const mod = all.module as string;
+              const modItem = failureProcessOptions?.modules?.find((m) => m.module === mod);
+              if (modItem?.owner) {
+                processForm.setFieldValue("owner", modItem.owner);
+              }
+            }
+          }}
+        >
+          <Form.Item
+            name="failed_type"
+            label="失败类型"
+            rules={[{ required: true, message: "请选择失败类型" }]}
+          >
+            <Select
+              placeholder="请选择失败类型"
+              allowClear
+              options={failureProcessOptions?.case_failed_types?.map((t) => ({
+                label: t.failed_reason_type,
+                value: t.failed_reason_type,
+              })) ?? []}
+            />
+          </Form.Item>
+          <Form.Item
+            name="owner"
+            label="跟踪人"
+            rules={[{ required: true, message: "请选择跟踪人" }]}
+          >
+            <Select
+              placeholder="请选择跟踪人"
+              allowClear
+              showSearch
+              filterOption={(input, option) =>
+                (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
+              }
+              options={failureProcessOptions?.owners?.map((o) => ({
+                label: o.name,
+                value: o.employee_id,
+              })) ?? []}
+            />
+          </Form.Item>
+          <Form.Item
+            name="reason"
+            label="详细原因"
+            rules={[
+              { required: true, message: "请输入详细原因" },
+              { whitespace: true, message: "请输入详细原因" },
+              { max: 2000, message: "最多 2000 字符" },
+            ]}
+          >
+            <Input.TextArea rows={4} placeholder="请输入详细原因" maxLength={2000} showCount />
+          </Form.Item>
+          {/* 仅 failed_type=bug 时显示模块字段 */}
+          {processFailedType && isBugType(processFailedType) && (
+              <Form.Item
+                name="module"
+                label="模块"
+                rules={[{ required: true, message: "请选择模块" }]}
+              >
+                <Select
+                  placeholder="请选择模块"
+                  allowClear
+                  showSearch
+                  filterOption={(input, option) =>
+                    (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
+                  }
+                  options={failureProcessOptions?.modules?.map((m) => ({
+                    label: m.module,
+                    value: m.module,
+                  })) ?? []}
+                />
+              </Form.Item>
+            )}
+        </Form>
+      </Modal>
 
       <Drawer
         title={<span style={{ fontSize: 18 }}>执行详情</span>}

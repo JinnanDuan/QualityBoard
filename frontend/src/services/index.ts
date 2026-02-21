@@ -64,6 +64,36 @@ export interface HistoryFilterOptions {
   failed_type: string[];
 }
 
+export interface CaseFailedTypeItem {
+  id: number;
+  failed_reason_type: string;  // 失败类型，如 bug、环境问题
+  owner: string | null;  // 默认跟踪人工号
+}
+
+export interface OwnerItem {
+  employee_id: string;  // 工号，提交时用
+  name: string;  // 姓名，下拉展示用
+}
+
+export interface ModuleItem {
+  module: string;
+  owner: string;  // 模块负责人工号
+}
+
+export interface FailureProcessOptions {
+  case_failed_types: CaseFailedTypeItem[];
+  owners: OwnerItem[];
+  modules: ModuleItem[];
+}
+
+export interface FailureProcessRequest {
+  history_ids: number[];
+  failed_type: string;
+  owner: string;  // 跟踪人工号
+  reason: string;
+  module?: string;  // 仅 failed_type=bug 时必填
+}
+
 // 将多选参数转为 URLSearchParams（key=val1&key=val2），供 FastAPI List 解析
 function toSearchParams(params?: HistoryQueryParams): URLSearchParams {
   const p = new URLSearchParams();
@@ -95,5 +125,13 @@ export const historyApi = {
   },
   options(): Promise<HistoryFilterOptions> {
     return request.get("/history/options") as any;
+  },
+  /** 获取标注弹窗选项（失败类型、跟踪人、模块） */
+  failureProcessOptions(): Promise<FailureProcessOptions> {
+    return request.get("/history/failure-process-options") as any;
+  },
+  /** 提交失败记录标注 */
+  failureProcess(data: FailureProcessRequest): Promise<{ success: boolean; message: string }> {
+    return request.post("/history/failure-process", data) as any;
   },
 };

@@ -25,12 +25,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # get_db: 数据库会话的提供者函数（定义在 database.py 中）
 # FastAPI 的 Depends(get_db) 会自动调用它，创建一个 session 并在请求结束后关闭
 from backend.core.database import get_db
+from backend.core.dependencies import get_current_user  # 从 JWT 解析当前用户，未登录返回 401
 # PageResponse: 通用分页响应模型 { items, total, page, page_size }
 from backend.schemas.common import PageResponse
 # HistoryItem:  单条记录的响应格式；HistoryQuery: 查询参数的格式；HistoryFilterOptions: 筛选选项
 from backend.schemas.history import HistoryFilterOptions, HistoryItem, HistoryQuery
+from backend.schemas.failure_process import FailureProcessOptions, FailureProcessRequest  # 失败标注 Schema
 # list_history, get_history_options: Service 层的查询函数
 from backend.services.history_service import get_history_options, list_history
+from backend.services.failure_process_service import get_failure_process_options, process_failure  # 失败标注 Service
 
 # 创建一个路由器实例:
 # - prefix="/history": 这个路由器下的所有端点都自动加上 /history 前缀
@@ -43,6 +46,27 @@ router = APIRouter(prefix="/history", tags=["执行明细"])
 async def get_history_options_endpoint(db: AsyncSession = Depends(get_db)):
     """获取筛选选项，供前端 Select 下拉使用。"""
     return await get_history_options(db)
+
+
+@router.get("/failure-process-options", response_model=FailureProcessOptions)
+async def get_failure_process_options_endpoint(
+    db: AsyncSession = Depends(get_db),
+    payload: dict = Depends(get_current_user),  # 需登录，payload["sub"] 为工号
+):
+    """获取失败记录标注弹窗所需的选项数据（失败类型、跟踪人、模块）。"""
+    return await get_failure_process_options(db)
+
+
+@router.post("/failure-process")
+async def post_failure_process(
+    req: FailureProcessRequest,
+    db: AsyncSession = Depends(get_db),
+    payload: dict = Depends(get_current_user),  # 需登录
+):
+    """提交失败记录标注，更新 pipeline_history.analyzed 与 pipeline_failure_reason。"""
+    analyzer_employee_id = payload.get("sub", "")  # JWT 的 sub 存的是工号
+    await process_failure(db, req, analyzer_employee_id)
+    return {"success": True, "message": "标注成功"}
 
 
 # @router.get("") 定义一个 GET 请求的端点
