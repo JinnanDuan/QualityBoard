@@ -130,7 +130,6 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   main_module: 90,
   case_result: 90,
   case_level: 100,
-  owner: 80,
   analyzed: 90,
   platform: 80,
   code_branch: 100,
@@ -173,7 +172,6 @@ export default function HistoryPage() {
       main_module: getList("main_module"),
       case_result: getList("case_result"),
       case_level: getList("case_level"),
-      owner: getList("owner"),
       analyzed: getIntList("analyzed"),
       platform: getList("platform"),
       code_branch: getList("code_branch"),
@@ -197,7 +195,6 @@ export default function HistoryPage() {
       appendList("main_module", params.main_module);
       appendList("case_result", params.case_result);
       appendList("case_level", params.case_level);
-      appendList("owner", params.owner);
       appendList("analyzed", params.analyzed);
       appendList("platform", params.platform);
       appendList("code_branch", params.code_branch);
@@ -242,7 +239,6 @@ export default function HistoryPage() {
       main_module: params.main_module,
       case_result: params.case_result,
       case_level: params.case_level,
-      owner: params.owner,
       analyzed: params.analyzed,
       platform: params.platform,
       code_branch: params.code_branch,
@@ -270,7 +266,6 @@ export default function HistoryPage() {
       main_module: values.main_module?.length ? values.main_module : undefined,
       case_result: values.case_result?.length ? values.case_result : undefined,
       case_level: values.case_level?.length ? values.case_level : undefined,
-      owner: values.owner?.length ? values.owner : undefined,
       analyzed: values.analyzed?.length ? values.analyzed : undefined,
       platform: values.platform?.length ? values.platform : undefined,
       code_branch: values.code_branch?.length ? values.code_branch : undefined,
@@ -423,19 +418,6 @@ export default function HistoryPage() {
       onHeaderCell: (col) => ({
         width: colWidths.case_level,
         onResize: handleResize("case_level"),
-      }),
-    },
-    {
-      title: "负责人",
-      dataIndex: "owner",
-      width: colWidths.owner,
-      sorter: true,
-      sortOrder: sortOrderFor("owner"),
-      ellipsis: { showTitle: false },
-      render: (val: string | null) => ellipsisCell(val),
-      onHeaderCell: (col) => ({
-        width: colWidths.owner,
-        onResize: handleResize("owner"),
       }),
     },
     {
@@ -652,23 +634,6 @@ export default function HistoryPage() {
             </Form.Item>
           </Col>
           <Col span={4}>
-            <Form.Item name="owner" label="负责人" style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="全部"
-                maxTagCount="responsive"
-                loading={optionsLoading}
-                showSearch
-                autoClearSearchValue={false}
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                }
-                options={options?.owner?.map((v) => ({ label: v, value: v })) ?? []}
-              />
-            </Form.Item>
-          </Col>
-          <Col span={4}>
             <Form.Item name="analyzed" label="是否已分析" style={{ marginBottom: 8 }}>
               <Select
                 mode="multiple"
@@ -796,6 +761,10 @@ export default function HistoryPage() {
               <div style={{ marginBottom: 8 }}>
                 <Text strong>用例级别：</Text>
                 {drawerRecord.case_level || "—"}
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <Text strong>用例开发责任人：</Text>
+                {drawerRecord.owner ?? "—"}
               </div>
               <div style={{ marginBottom: 8 }}>
                 <Text strong>平台：</Text>

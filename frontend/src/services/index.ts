@@ -40,7 +40,6 @@ export interface HistoryQueryParams {
   main_module?: string[];
   case_result?: string[];
   case_level?: string[];
-  owner?: string[];
   analyzed?: number[];
   platform?: string[];
   code_branch?: string[];
@@ -55,7 +54,6 @@ export interface HistoryFilterOptions {
   main_module: string[];
   case_result: string[];
   case_level: string[];
-  owner: string[];
   platform: string[];
   code_branch: string[];
 }
@@ -75,7 +73,6 @@ function toSearchParams(params?: HistoryQueryParams): URLSearchParams {
   appendList("main_module", params.main_module);
   appendList("case_result", params.case_result);
   appendList("case_level", params.case_level);
-  appendList("owner", params.owner);
   appendList("analyzed", params.analyzed);
   appendList("platform", params.platform);
   appendList("code_branch", params.code_branch);

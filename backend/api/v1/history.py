@@ -66,7 +66,6 @@ async def get_history_list(
     main_module: Optional[List[str]] = Query(None),    # 筛选主模块（多选）
     case_result: Optional[List[str]] = Query(None),     # 筛选执行结果（多选）
     case_level: Optional[List[str]] = Query(None),      # 筛选用例级别（多选）
-    owner: Optional[List[str]] = Query(None),          # 筛选负责人（多选）
     analyzed: Optional[List[int]] = Query(None),       # 筛选是否已分析（多选：1=已分析，0=未分析）
     platform: Optional[List[str]] = Query(None),       # 筛选平台（多选）
     code_branch: Optional[List[str]] = Query(None),    # 筛选代码分支（多选）
@@ -91,7 +90,6 @@ async def get_history_list(
         main_module=main_module,
         case_result=case_result,
         case_level=case_level,
-        owner=owner,
         analyzed=analyzed,
         platform=platform,
         code_branch=code_branch,

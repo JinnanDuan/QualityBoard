@@ -62,7 +62,6 @@ class HistoryQuery(PageRequest):
     main_module: Optional[List[str]] = None     # 按主模块筛选（多选）
     case_result: Optional[List[str]] = None     # 按执行结果筛选（多选）
     case_level: Optional[List[str]] = None       # 按用例级别筛选（多选）
-    owner: Optional[List[str]] = None            # 按负责人筛选（多选）
     analyzed: Optional[List[int]] = None        # 按是否已分析筛选（多选：1=已分析，0=未分析）
     platform: Optional[List[str]] = None         # 按平台筛选（多选）
     code_branch: Optional[List[str]] = None      # 按代码分支筛选（多选）
@@ -79,6 +78,5 @@ class HistoryFilterOptions(BaseModel):
     main_module: List[str] = []
     case_result: List[str] = []
     case_level: List[str] = []
-    owner: List[str] = []
     platform: List[str] = []
     code_branch: List[str] = []

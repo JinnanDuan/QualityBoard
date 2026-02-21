@@ -46,8 +46,6 @@ async def list_history(db: AsyncSession, query: HistoryQuery) -> Tuple[List[Pipe
         stmt = stmt.where(PipelineHistory.case_result.in_(query.case_result))
     if query.case_level:
         stmt = stmt.where(PipelineHistory.case_level.in_(query.case_level))
-    if query.owner:
-        stmt = stmt.where(PipelineHistory.owner.in_(query.owner))
     if query.analyzed:
         stmt = stmt.where(PipelineHistory.analyzed.in_(query.analyzed))
     if query.platform:
@@ -68,7 +66,7 @@ async def list_history(db: AsyncSession, query: HistoryQuery) -> Tuple[List[Pipe
     # 支持按指定列排序，默认 created_at DESC
     ALLOWED_SORT_FIELDS = {
         "start_time", "subtask", "case_name", "main_module", "case_result",
-        "case_level", "owner", "analyzed", "platform", "code_branch", "created_at",
+        "case_level", "analyzed", "platform", "code_branch", "created_at",
     }
     sort_col = getattr(PipelineHistory, query.sort_field, None) if query.sort_field else None
     if sort_col and query.sort_field in ALLOWED_SORT_FIELDS and query.sort_order:
@@ -113,7 +111,6 @@ async def get_history_options(db: AsyncSession) -> HistoryFilterOptions:
     case_name = await _distinct(PipelineHistory.case_name)
     main_module = await _distinct(PipelineHistory.main_module)
     case_level = await _distinct(PipelineHistory.case_level)
-    owner = await _distinct(PipelineHistory.owner)
     platform = await _distinct(PipelineHistory.platform)
     code_branch = await _distinct(PipelineHistory.code_branch)
 
@@ -124,7 +121,6 @@ async def get_history_options(db: AsyncSession) -> HistoryFilterOptions:
         main_module=main_module,
         case_result=["passed", "failed"],
         case_level=case_level,
-        owner=owner,
         platform=platform,
         code_branch=code_branch,
     )

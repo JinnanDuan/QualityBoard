@@ -14,7 +14,6 @@
 | main_module | 主模块 | main_module | 100 | 纯文本 |
 | case_result | 执行结果 | case_result | 100 | Tag 着色：passed=绿色，failed=红色，其他=default |
 | case_level | 用例级别 | case_level | 90 | 纯文本（P0/P1/P2） |
-| owner | 负责人 | owner | 90 | 纯文本 |
 | analyzed | 是否已分析 | analyzed | 100 | Tag：1=已分析（蓝色），0=未分析（灰色） |
 | platform | 平台 | platform | 90 | 纯文本 |
 | code_branch | 代码分支 | code_branch | 120 | 纯文本，ellipsis 省略 |
@@ -37,6 +36,7 @@
 | main_module | 纯文本 |
 | module | 纯文本（模块名，可有多值） |
 | case_level | 纯文本 |
+| owner | 纯文本（用例开发责任人） |
 | platform | 纯文本 |
 | code_branch | 纯文本 |
 | screenshot_url | 可点击链接（新窗口打开），无值则显示「暂无」 |
@@ -49,7 +49,7 @@
 | log_url | 可点击链接（新窗口打开），无值则显示「暂无」 |
 | pipeline_url | 可点击链接（新窗口打开），无值则显示「暂无」 |
 
-**说明：** `owner` 在表格列中直接展示，`owner_history` 本次实现不考虑。
+**说明：** `owner` 在 Drawer 基本信息区展示，名称为「用例开发责任人」。`owner_history` 本次实现不考虑。
 
 ---
 
@@ -63,7 +63,6 @@
 | main_module | 下拉单选 | 否 | 空 | 选项从数据去重或 `ums_module_owner` 获取 |
 | case_result | 下拉单选 | 否 | 空 | 选项：passed、failed |
 | case_level | 下拉单选 | 否 | 空 | 选项：P0、P1、P2 等 |
-| owner | 下拉单选 | 否 | 空 | 选项从数据去重或 `ums_email` 获取 |
 | analyzed | 下拉单选 | 否 | 空 | 选项：全部、已分析、未分析（对应 空/1/0） |
 | platform | 下拉单选 | 否 | 空 | 选项从数据去重（如 Android、iOS、Web） |
 | code_branch | 下拉单选 | 否 | 空 | 选项从数据去重获取 |
@@ -83,7 +82,7 @@
 | module | — | ✓ 基本信息 | — |
 | case_result | ✓ | — | ✓ |
 | case_level | ✓ | ✓ 基本信息 | ✓ |
-| owner | ✓ | — | ✓ |
+| owner | — | ✓ 基本信息 | — |
 | analyzed | ✓ | — | ✓ |
 | platform | ✓ | ✓ 基本信息 | ✓ |
 | code_branch | ✓ | ✓ 基本信息 | ✓ |
