@@ -8,11 +8,11 @@
 
 | 文件 | 内容 |
 |------|------|
-| **app.log** | 应用层日志：业务打点、异常堆栈、SQL（可选）、uvicorn 内部日志 |
+| **app.log** | 应用层日志：业务打点、异常堆栈、SQL（可选）、uvicorn 内部日志，含 endpoint（触发接口） |
 | **access.log** | 访问日志：method、path、status_code、duration_ms、client_ip |
 
 - 异常/错误统一写入 **app.log**
-- 日志格式：`时间戳 [级别] [模块名] [req:request_id] 消息`
+- 日志格式：`时间戳 [级别] [模块名] [req:request_id] [METHOD /path] 消息`
 - 支持 RotatingFileHandler 轮转（app.log 10MB×5 份，access.log 10MB×3 份）
 
 ---
@@ -62,6 +62,9 @@ tail -f access.log
 # 按 request_id 串联一次请求的完整链路
 grep "req:abc-123" app.log access.log
 
+# 按接口过滤 SQL 日志
+grep "GET /api/v1/history" app.log
+
 # 按级别过滤
 grep "\[ERROR\]" app.log
 ```
@@ -70,7 +73,9 @@ grep "\[ERROR\]" app.log
 
 ## 5. SQL 日志
 
-调试时在 `.env` 中设置 `LOG_SQL=true`，重启服务后所有 MySQL SQL 会写入 app.log。
+调试时在 `.env` 中设置 `LOG_SQL=true`，重启服务后所有 MySQL SQL 会写入 app.log。开启后：
+- SQL 日志行内会展示触发接口（如 `[GET /api/v1/history]`），便于快速定位问题 SQL
+- 每条 SQL 与查询耗时在同一行展示，格式：`SELECT ... [query took X.Xms]`
 
 生产环境建议关闭，避免日志膨胀和敏感信息泄露。
 

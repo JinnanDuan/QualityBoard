@@ -1,6 +1,19 @@
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, List, Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
+
+# 项目根目录，确保 .env 无论从何处启动都能正确加载
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _parse_bool(v: Any) -> bool:
+    """显式解析布尔值，避免 pydantic 对 'False' 等字符串的解析差异。"""
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
+    return s in ("true", "1", "yes", "on")
 
 
 class Settings(BaseSettings):
@@ -24,7 +37,15 @@ class Settings(BaseSettings):
     LOG_ACCESS_BACKUP_COUNT: int = 3
     LOG_SQL: bool = False  # 为 True 时在 app.log 中打印所有 SQL（调试用）
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    @field_validator("LOG_SQL", mode="before")
+    @classmethod
+    def _parse_log_sql(cls, v: Any) -> bool:
+        return _parse_bool(v)
+
+    model_config = {
+        "env_file": str(_PROJECT_ROOT / ".env"),
+        "env_file_encoding": "utf-8",
+    }
 
 
 settings = Settings()

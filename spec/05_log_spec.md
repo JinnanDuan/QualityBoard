@@ -105,7 +105,7 @@
 
 **应用层日志示例**：
 ```
-2025-02-21 10:30:45.123 [INFO] [backend.services.history] [req:abc-123] 查询执行历史，page=1
+2025-02-21 10:30:45.123 [INFO] [backend.services.history] [req:abc-123] [GET /api/v1/history?page=1] 查询执行历史，page=1
 ```
 
 **访问日志示例**：
@@ -122,6 +122,7 @@
 | logger | 模块名（如 `backend.services.history_service`） |
 | message | 主消息内容 |
 | request_id | 可选，有请求上下文时以 `[req:xxx]` 形式展示 |
+| endpoint | 可选，有请求上下文时以 `[METHOD /path]` 形式展示 |
 
 **可选扩展**：业务自定义键值对可追加在 message 之后。
 
@@ -140,10 +141,10 @@
 - **传递**：通过 `contextvars`（`contextvars.ContextVar`）在请求生命周期内传递，确保同一请求内所有 logger 调用均可获取。
 - **响应头**：在 HTTP 响应头中返回 `X-Request-ID`，便于前端或网关关联。
 
-### 5.2 日志中注入 request_id
+### 5.2 日志中注入 request_id 与 endpoint
 
-- 使用 **Filter** 或 **Formatter 的 `extra` 机制**：从 `contextvars` 读取 `request_id`，注入到每条日志记录的 `extra` 中。
-- 若当前无请求上下文（如定时任务、启动阶段），`request_id` 可为空或 `-`。
+- 使用 **Filter** 或 **Formatter 的 `extra` 机制**：从 `contextvars` 读取 `request_id`、`endpoint`，注入到每条日志记录的 `extra` 中。
+- 若当前无请求上下文（如定时任务、启动阶段），`request_id`、`endpoint` 可为空或 `-`。
 
 ### 5.3 访问日志字段清单
 

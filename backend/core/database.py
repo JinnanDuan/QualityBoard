@@ -6,12 +6,14 @@
 # ============================================================
 
 import logging
+import time
 
 # SQLAlchemy 是 Python 最流行的 ORM(对象关系映射)库。
 # "async" 前缀表示异步版本 — 不会阻塞其他请求，性能更好。
 # - AsyncSession:    异步数据库会话，用它来执行查询
 # - async_sessionmaker: 会话工厂，每次调用都会创建一个新的 AsyncSession
 # - create_async_engine: 创建异步数据库引擎（底层连接池）
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 # 从项目配置模块中导入 settings 对象（里面包含 DATABASE_URL 等配置项，读取自 .env 文件）
@@ -19,20 +21,40 @@ from backend.core.config import settings
 
 # 创建异步数据库引擎 — 这是整个应用与 MySQL 通信的"桥梁"
 # - settings.DATABASE_URL: 数据库连接字符串，格式如 mysql+aiomysql://user:password@host:port/dbname
-# - echo:                 由 LOG_SQL 控制，为 True 时通过 logging 打印所有 SQL 到 app.log
+# - echo:                 False，SQL 由下方事件统一输出（含耗时），便于与 echo 的格式区分
 # - pool_pre_ping=True:   每次从连接池取连接前先 ping 一下数据库，避免拿到已断开的连接
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.LOG_SQL,
+    echo=False,
     pool_pre_ping=True,
 )
+
+logger = logging.getLogger(__name__)
+logger.info("数据库引擎已创建 LOG_SQL=%s", settings.LOG_SQL)
+
+# 当 LOG_SQL 开启时，注册事件：将 SQL 与查询耗时合并到同一行输出
+if settings.LOG_SQL:
+    _sql_logger = logging.getLogger("sqlalchemy.engine.Engine")
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute")
+    def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):  # noqa: ARG001
+        conn.info["_query_start"] = time.perf_counter()
+        conn.info["_query_statement"] = statement
+
+    @event.listens_for(engine.sync_engine, "after_cursor_execute")
+    def _after_cursor_execute(conn, cursor, statement, parameters, context, executemany):  # noqa: ARG001
+        start = conn.info.pop("_query_start", None)
+        stmt = conn.info.pop("_query_statement", statement)
+        if start is not None:
+            duration_ms = (time.perf_counter() - start) * 1000
+            compact = " ".join(stmt.split())
+            params_str = "" if parameters is None else " %r" % (parameters,)
+            _sql_logger.info("%s [query took %.1fms]%s", compact, duration_ms, params_str)
 
 # 创建会话工厂 — 之后每次需要数据库会话时，调用 async_session_factory() 即可得到一个新的 AsyncSession
 # - class_=AsyncSession:      指定工厂生产的会话类型
 # - expire_on_commit=False:   提交事务后不自动让已加载的对象过期（避免提交后再访问字段时触发额外查询）
 async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-logger = logging.getLogger(__name__)
 
 
 # 这是 FastAPI 的"依赖注入"函数 — 后面 API 层会通过 Depends(get_db) 来自动调用它

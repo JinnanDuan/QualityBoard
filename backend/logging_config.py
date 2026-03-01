@@ -8,16 +8,35 @@ from pathlib import Path
 from typing import Any, Dict
 
 from backend.core.config import settings
-from backend.core.request_id import get_request_id
+from backend.core.request_id import get_request_endpoint, get_request_id
 
 
 class RequestIdFilter(logging.Filter):
-    """从 contextvars 读取 request_id 注入到 LogRecord。"""
+    """从 contextvars 读取 request_id、endpoint 注入到 LogRecord。"""
 
     def filter(self, record: logging.LogRecord) -> bool:
         rid = get_request_id()
         record.request_id = f"[req:{rid}]" if rid else "-"
+        ep = get_request_endpoint()
+        record.endpoint = f"[{ep}]" if ep else "-"
         return True
+
+
+class SqlEchoFilter(logging.Filter):
+    """过滤 sqlalchemy.engine 的日志：保留自定义的「SQL + [query took]」格式及事务边界（BEGIN/ROLLBACK）。"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = getattr(record, "msg", "") or ""
+        if not isinstance(msg, str):
+            return True
+        # 保留：自定义格式、事务边界
+        stripped = msg.strip()
+        return (
+            "[query took" in msg
+            or stripped == "ROLLBACK"
+            or stripped == "BEGIN (implicit)"
+            or stripped == "COMMIT"
+        )
 
 
 class SensitiveDataFilter(logging.Filter):
@@ -81,10 +100,13 @@ def get_logging_config() -> Dict[str, Any]:
             "sensitive": {
                 "()": "backend.logging_config.SensitiveDataFilter",
             },
+            "sql_echo": {
+                "()": "backend.logging_config.SqlEchoFilter",
+            },
         },
         "formatters": {
             "default": {
-                "format": "%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s] %(request_id)s %(message)s",
+                "format": "%(asctime)s.%(msecs)03d [%(levelname)s] [%(name)s] %(request_id)s %(endpoint)s %(message)s",
                 "datefmt": "%Y-%m-%d %H:%M:%S",
             },
             "access": {
@@ -105,6 +127,15 @@ def get_logging_config() -> Dict[str, Any]:
                 "filters": ["request_id", "sensitive"],
                 "encoding": "utf-8",
             },
+            "sqlalchemy_app_file": {
+                "class": "logging.handlers.RotatingFileHandler",
+                "filename": app_log_path,
+                "maxBytes": settings.LOG_APP_MAX_BYTES,
+                "backupCount": settings.LOG_APP_BACKUP_COUNT,
+                "formatter": "default",
+                "filters": ["request_id", "sensitive", "sql_echo"],
+                "encoding": "utf-8",
+            },
             "access_file": {
                 "class": "logging.handlers.RotatingFileHandler",
                 "filename": access_log_path,
@@ -121,7 +152,11 @@ def get_logging_config() -> Dict[str, Any]:
             "uvicorn.error": {"level": uvicorn_error_level, "handlers": ["app_file"], "propagate": False},
             "backend": {"level": level, "handlers": ["app_file"], "propagate": False},
             "access": {"level": "INFO", "handlers": ["access_file"], "propagate": False},
-            "sqlalchemy.engine": {"level": "INFO", "handlers": ["app_file"], "propagate": False},
+            "sqlalchemy.engine": {
+                "level": "INFO" if settings.LOG_SQL else "CRITICAL",
+                "handlers": ["sqlalchemy_app_file"],
+                "propagate": False,
+            },
         },
         "root": {"level": level, "handlers": ["app_file"]},
     }
@@ -133,7 +168,13 @@ def get_logging_config() -> Dict[str, Any]:
             "filters": ["request_id", "sensitive"],
             "stream": "ext://sys.stdout",
         }
-        for logger_name in ["uvicorn", "uvicorn.error", "backend", "sqlalchemy.engine", "root"]:
+        config["handlers"]["sqlalchemy_console"] = {
+            "class": "logging.StreamHandler",
+            "formatter": "default",
+            "filters": ["request_id", "sensitive", "sql_echo"],
+            "stream": "ext://sys.stdout",
+        }
+        for logger_name in ["uvicorn", "uvicorn.error", "backend", "root"]:
             logger_config = config["loggers"].get(logger_name) or config.get("root", {})
             handlers = logger_config.get("handlers", ["app_file"])
             if "console" not in handlers:
@@ -142,5 +183,9 @@ def get_logging_config() -> Dict[str, Any]:
                 config["root"]["handlers"] = handlers
             else:
                 config["loggers"][logger_name]["handlers"] = handlers
+        # sqlalchemy.engine 使用带 sql_echo 过滤的 console
+        sql_handlers = list(config["loggers"]["sqlalchemy.engine"]["handlers"])
+        if "sqlalchemy_console" not in sql_handlers:
+            config["loggers"]["sqlalchemy.engine"]["handlers"] = sql_handlers + ["sqlalchemy_console"]
 
     return config
