@@ -121,19 +121,20 @@ async def list_history(
 # 获取筛选选项 — 与 list_history 完全解耦，独立执行单表去重查询。
 # 即使 history 列表查询超时或失败，筛选项接口仍可正常返回。
 async def get_history_options(db: AsyncSession) -> HistoryFilterOptions:
-    async def _distinct(column, desc=False):
+    async def _distinct(column, desc=False, prefix=None):
         stmt = (
             select(column)
             .where(column.is_not(None))
             .where(column != "")
-            .distinct()
         )
-        stmt = stmt.order_by(column.desc() if desc else column)
+        if prefix is not None:
+            stmt = stmt.where(column.like(prefix + "%"))
+        stmt = stmt.distinct().order_by(column.desc() if desc else column)
         result = await db.execute(stmt)
         return [r[0] for r in result.all() if r[0]]
 
-    # start_time 按降序，利用 idx_timentask/idx_start_time_case 索引避免全表扫描
-    start_time = await _distinct(ph.start_time, desc=True)
+    # start_time 仅查 20 开头（如 2024、2025 年），按降序，利用索引
+    start_time = await _distinct(ph.start_time, desc=True, prefix="20")
     subtask = await _distinct(ph.subtask)
     case_name = await _distinct(ph.case_name)
     main_module = await _distinct(ph.main_module)
