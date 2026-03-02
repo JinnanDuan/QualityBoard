@@ -7,50 +7,49 @@
 # 这样做的好处是：同一个 Service 函数可以被多个 API 端点复用。
 # ============================================================
 
-# List: Python 列表类型；Tuple: 元组类型（用于返回 (items, total) 两个值）
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-# func: SQLAlchemy 的 SQL 函数工具，如 func.count() 生成 COUNT(*) SQL
-# select: SQLAlchemy 的查询构建器，相当于 SQL 的 SELECT 语句
-# and_: 用于组合多个条件
-from sqlalchemy import and_, func, select
+from sqlalchemy import func, select, tuple_
 # AsyncSession: 异步数据库会话，通过它来执行 SQL 查询
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# 导入 ORM 模型
 from backend.models.pipeline_failure_reason import PipelineFailureReason
 from backend.models.pipeline_history import PipelineHistory
-# 导入请求 Schema — 包含分页参数和筛选条件
 from backend.schemas.history import HistoryFilterOptions, HistoryQuery
 
-# 关联条件：ph.case_name = pfr.case_name AND ph.start_time = pfr.failed_batch AND ph.platform = pfr.platform
 ph = PipelineHistory
 pfr = PipelineFailureReason
-JOIN_COND = and_(
-    ph.case_name == pfr.case_name,
-    ph.start_time == pfr.failed_batch,
-    ph.platform == pfr.platform,
-)
+
+ALLOWED_SORT_FIELDS = {
+    "start_time", "subtask", "case_name", "main_module", "case_result",
+    "case_level", "analyzed", "platform", "code_branch", "created_at",
+}
 
 
-# 这是一个异步函数（async def），因为数据库操作是异步的（不阻塞其他请求）
-# 参数:
-#   db:    数据库会话（由 API 层通过依赖注入传入）
-#   query: 查询参数（包含 page, page_size 及筛选条件）
-# 返回值: 元组 (items, total)
-#   items: 当前页的 (PipelineHistory, failure_owner, failed_type) 元组列表
-#   total: 符合筛选条件的总记录数
 async def list_history(
     db: AsyncSession, query: HistoryQuery
 ) -> Tuple[List[Tuple[PipelineHistory, Optional[str], Optional[str]]], int]:
-    # ===== 第一步：构建基础查询（LEFT JOIN pipeline_failure_reason）=====
-    stmt = (
-        select(ph, pfr.owner.label("failure_owner"), pfr.failed_type)
-        .select_from(ph)
-        .outerjoin(pfr, JOIN_COND)
-    )
+    """
+    分步查询，禁止 JOIN：
+    1. 仅查 pipeline_history 主表，按分页和基础筛选获取当前页数据
+    2. 根据结果中的 (case_name, start_time, platform) 再查 pipeline_failure_reason
+    3. 在服务层拼装 failure_owner、failed_type
+    """
+    # ===== 第一步：若有 failure_owner / failed_type 筛选，先查 pfr 获取匹配的 (case_name, failed_batch, platform) =====
+    pfr_keys_list: Optional[List[Tuple[Optional[str], Optional[str], Optional[str]]]] = None
+    if query.failure_owner or query.failed_type:
+        pfr_stmt = select(pfr.case_name, pfr.failed_batch, pfr.platform).distinct()
+        if query.failure_owner:
+            pfr_stmt = pfr_stmt.where(pfr.owner.in_(query.failure_owner))
+        if query.failed_type:
+            pfr_stmt = pfr_stmt.where(pfr.failed_type.in_(query.failed_type))
+        pfr_result = await db.execute(pfr_stmt)
+        pfr_keys_list = list({tuple(r) for r in pfr_result.all()})
+        if not pfr_keys_list:
+            return [], 0
 
-    # ===== 第二步：动态添加筛选条件（WHERE 子句）=====
+    # ===== 第二步：仅查 pipeline_history 主表（无 JOIN）=====
+    stmt = select(ph)
     if query.start_time:
         stmt = stmt.where(ph.start_time.in_(query.start_time))
     if query.subtask:
@@ -69,20 +68,16 @@ async def list_history(
         stmt = stmt.where(ph.platform.in_(query.platform))
     if query.code_branch:
         stmt = stmt.where(ph.code_branch.in_(query.code_branch))
-    if query.failure_owner:
-        stmt = stmt.where(pfr.owner.in_(query.failure_owner))
-    if query.failed_type:
-        stmt = stmt.where(pfr.failed_type.in_(query.failed_type))
+    if pfr_keys_list is not None:
+        stmt = stmt.where(
+            tuple_(ph.case_name, ph.start_time, ph.platform).in_(pfr_keys_list)
+        )
 
-    # ===== 第三步：查询总记录数 =====
+    # ===== 第三步：总记录数 =====
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await db.execute(count_stmt)).scalar() or 0
 
     # ===== 第四步：排序 + 分页 =====
-    ALLOWED_SORT_FIELDS = {
-        "start_time", "subtask", "case_name", "main_module", "case_result",
-        "case_level", "analyzed", "platform", "code_branch", "created_at",
-    }
     sort_col = getattr(ph, query.sort_field, None) if query.sort_field else None
     if sort_col and query.sort_field in ALLOWED_SORT_FIELDS and query.sort_order:
         if query.sort_order.lower() == "asc":
@@ -93,15 +88,38 @@ async def list_history(
         stmt = stmt.order_by(ph.created_at.desc())
     stmt = stmt.offset((query.page - 1) * query.page_size).limit(query.page_size)
 
-    # ===== 第五步：执行查询并提取结果 =====
+    # ===== 第五步：执行主表查询 =====
     result = await db.execute(stmt)
-    rows = result.all()
-    items = [(row[0], row[1], row[2]) for row in rows]
+    rows = result.scalars().all()
 
+    if not rows:
+        return [], total
+
+    # ===== 第六步：根据当前页结果批量查 pipeline_failure_reason，拼装 failure_owner、failed_type =====
+    keys = list({(r.case_name, r.start_time, r.platform) for r in rows})
+    pfr_lookup: Dict[Tuple[Optional[str], Optional[str], Optional[str]], Tuple[Optional[str], Optional[str]]] = {
+        k: (None, None) for k in keys
+    }
+
+    pfr_stmt = select(pfr.case_name, pfr.failed_batch, pfr.platform, pfr.owner, pfr.failed_type).where(
+        tuple_(pfr.case_name, pfr.failed_batch, pfr.platform).in_(keys)
+    )
+    pfr_result = await db.execute(pfr_stmt)
+    for r in pfr_result.all():
+        k = (r[0], r[1], r[2])
+        if k in pfr_lookup and pfr_lookup[k] == (None, None):
+            pfr_lookup[k] = (r[3], r[4])
+
+    items = [
+        (row, pfr_lookup[(row.case_name, row.start_time, row.platform)][0],
+         pfr_lookup[(row.case_name, row.start_time, row.platform)][1])
+        for row in rows
+    ]
     return items, total
 
 
-# 获取筛选选项 — 从 pipeline_history 与 pipeline_failure_reason 各列去重，供前端 Select 使用
+# 获取筛选选项 — 与 list_history 完全解耦，独立执行单表去重查询。
+# 即使 history 列表查询超时或失败，筛选项接口仍可正常返回。
 async def get_history_options(db: AsyncSession) -> HistoryFilterOptions:
     async def _distinct(column):
         stmt = (
