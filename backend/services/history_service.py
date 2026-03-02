@@ -121,18 +121,19 @@ async def list_history(
 # 获取筛选选项 — 与 list_history 完全解耦，独立执行单表去重查询。
 # 即使 history 列表查询超时或失败，筛选项接口仍可正常返回。
 async def get_history_options(db: AsyncSession) -> HistoryFilterOptions:
-    async def _distinct(column):
+    async def _distinct(column, desc=False):
         stmt = (
             select(column)
             .where(column.is_not(None))
             .where(column != "")
             .distinct()
-            .order_by(column)
         )
+        stmt = stmt.order_by(column.desc() if desc else column)
         result = await db.execute(stmt)
         return [r[0] for r in result.all() if r[0]]
 
-    start_time = await _distinct(ph.start_time)
+    # start_time 按降序，利用 idx_timentask/idx_start_time_case 索引避免全表扫描
+    start_time = await _distinct(ph.start_time, desc=True)
     subtask = await _distinct(ph.subtask)
     case_name = await _distinct(ph.case_name)
     main_module = await _distinct(ph.main_module)
