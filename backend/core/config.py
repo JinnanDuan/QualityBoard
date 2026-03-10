@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     WELINK_APP_ID: str = ""
     WELINK_APP_SECRET: str = ""
 
+    # LDAP 域登录（LDAP_HOST 留空则使用 MVP 密码模式）
+    LDAP_HOST: str = ""
+    LDAP_PORT: int = 389
+    LDAP_DOMAIN: str = ""  # 可选，用于拼接 domain_account@LDAP_DOMAIN，空则原样 bind
+
     # 日志配置
     ENV: str = "development"
     LOG_LEVEL: Optional[str] = None  # 空则随 ENV：development=DEBUG, production=INFO
