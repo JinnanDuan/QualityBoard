@@ -42,9 +42,13 @@ class Settings(BaseSettings):
     LOG_ACCESS_BACKUP_COUNT: int = 3
     LOG_SQL: bool = False  # 为 True 时在 app.log 中打印所有 SQL（调试用）
 
-    @field_validator("LOG_SQL", mode="before")
+    # 数据库表结构一致性校验（启动时校验 DDL 与数据库是否一致）
+    DB_SCHEMA_CHECK_ENABLED: bool = True
+    DB_SCHEMA_CHECK_FAIL_FAST: bool = True
+
+    @field_validator("LOG_SQL", "DB_SCHEMA_CHECK_ENABLED", "DB_SCHEMA_CHECK_FAIL_FAST", mode="before")
     @classmethod
-    def _parse_log_sql(cls, v: Any) -> bool:
+    def _parse_bool_field(cls, v: Any) -> bool:
         return _parse_bool(v)
 
     model_config = {

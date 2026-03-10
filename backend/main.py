@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -11,10 +12,19 @@ from backend.core.config import settings
 from backend.middleware.access_log import AccessLogMiddleware
 from backend.middleware.request_id import RequestIdMiddleware
 
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+
+
 app = FastAPI(
     title="dt-report",
     description="团队内部测试用例批量执行结果看板与管理系统",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(CORSMiddleware, allow_origins=settings.CORS_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])

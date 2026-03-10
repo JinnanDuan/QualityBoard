@@ -330,6 +330,14 @@ mysql -u <用户名> -p -h <数据库IP> -P <端口> dt_infra -e "SELECT 1;"
 
 如连接正常但后端仍报错，检查 `DATABASE_URL` 中密码是否含有特殊字符（如 `@`、`#`），需要进行 URL 编码。
 
+### Q5: 启动时提示 DB Schema Check 失败
+
+系统启动时会校验数据库表结构与 `database/` 下 DDL 文件是否一致。若不一致，会输出差异报告并可能拒绝启动。
+
+**处理方式**：按差异报告执行对应迁移脚本，或联系 DBA 同步表结构。例如报告 `[表缺失] sys_audit_log` 时，执行 `mysql ... dt_infra < database/V1.0.9__create_sys_audit_log.sql`。
+
+**临时跳过**：在 `.env` 中设置 `DB_SCHEMA_CHECK_ENABLED=false` 可跳过校验；设置 `DB_SCHEMA_CHECK_FAIL_FAST=false` 可仅告警不退出。
+
 ---
 
 ## 9. 目录结构参考
