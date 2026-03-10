@@ -228,6 +228,21 @@ export default function HistoryPage() {
       const res = await historyApi.list(params);
       setData(res.items);
       setTotal(res.total);
+    } catch (e: unknown) {
+      const err = e as {
+        code?: string;
+        message?: string;
+        response?: { status?: number; data?: { detail?: string } };
+      };
+      if (err.code === "ECONNABORTED" || err.message?.toLowerCase().includes("timeout")) {
+        message.error("请求超时，请缩小筛选范围（如选择批次或平台）后重试");
+      } else if (err.response?.status && err.response.status >= 500) {
+        message.error("服务异常，请稍后重试");
+      } else {
+        const detail = err.response?.data?.detail;
+        message.error((typeof detail === "string" && detail) ? detail : "加载失败");
+      }
+      // 失败时保留上次数据，不调用 setData/setTotal
     } finally {
       setLoading(false);
     }
@@ -652,7 +667,7 @@ export default function HistoryPage() {
               <Select
                 mode="multiple"
                 allowClear
-                placeholder="全部"
+                placeholder="不选则默认最近30批"
                 maxTagCount="responsive"
                 loading={optionsLoading}
                 showSearch
