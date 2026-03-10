@@ -74,9 +74,9 @@ export default function LoginPage() {
         >
           <Form.Item
             name="employee_id"
-            rules={[{ required: true, message: "请输入工号" }]}
+            rules={[{ required: true, message: "请输入域账号" }]}
           >
-            <Input prefix={<UserOutlined />} placeholder="工号" />
+            <Input prefix={<UserOutlined />} placeholder="域账号" />
           </Form.Item>
           <Form.Item
             name="password"
