@@ -9,7 +9,7 @@
 
 from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import and_, exists, func, select, tuple_
 # AsyncSession: 异步数据库会话，通过它来执行 SQL 查询
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,25 +30,29 @@ async def list_history(
     db: AsyncSession, query: HistoryQuery
 ) -> Tuple[List[Tuple[PipelineHistory, Optional[str], Optional[str]]], int]:
     """
-    分步查询，禁止 JOIN：
-    1. 仅查 pipeline_history 主表，按分页和基础筛选获取当前页数据
-    2. 根据结果中的 (case_name, start_time, platform) 再查 pipeline_failure_reason
-    3. 在服务层拼装 failure_owner、failed_type
+    按 Spec 07：条件合并 + EXISTS 跨表筛选，禁止 JOIN、禁止结果集驱动。
+    按 Spec 08：未选 start_time 时注入默认最近 30 批，缩小扫描范围。
+    1. 仅查 pipeline_history 主表，跨表条件通过 EXISTS 子查询
+    2. 主查询完成后，根据当前页 (case_name, start_time, platform) 批量查 pfr 拼装 failure_owner、failed_type
     """
-    # ===== 第一步：若有 failure_owner / failed_type 筛选，先查 pfr 获取匹配的 (case_name, failed_batch, platform) =====
-    pfr_keys_list: Optional[List[Tuple[Optional[str], Optional[str], Optional[str]]]] = None
-    if query.failure_owner or query.failed_type:
-        pfr_stmt = select(pfr.case_name, pfr.failed_batch, pfr.platform).distinct()
-        if query.failure_owner:
-            pfr_stmt = pfr_stmt.where(pfr.owner.in_(query.failure_owner))
-        if query.failed_type:
-            pfr_stmt = pfr_stmt.where(pfr.failed_type.in_(query.failed_type))
-        pfr_result = await db.execute(pfr_stmt)
-        pfr_keys_list = list({tuple(r) for r in pfr_result.all()})
-        if not pfr_keys_list:
+    # ===== 第零步：未选 start_time 时注入默认最近 30 批（Spec 08）=====
+    if not query.start_time:
+        default_batches_stmt = (
+            select(ph.start_time)
+            .where(ph.start_time.is_not(None))
+            .where(ph.start_time.like("20%"))
+            .distinct()
+            .order_by(ph.start_time.desc())
+            .limit(30)
+        )
+        default_result = await db.execute(default_batches_stmt)
+        default_batches = [r[0] for r in default_result.all() if r[0]]
+        if default_batches:
+            query = query.model_copy(update={"start_time": default_batches})
+        else:
             return [], 0
 
-    # ===== 第二步：仅查 pipeline_history 主表（无 JOIN）=====
+    # ===== 第一步：构建主表查询（无 JOIN）=====
     stmt = select(ph)
     if query.start_time:
         stmt = stmt.where(ph.start_time.in_(query.start_time))
@@ -68,16 +72,24 @@ async def list_history(
         stmt = stmt.where(ph.platform.in_(query.platform))
     if query.code_branch:
         stmt = stmt.where(ph.code_branch.in_(query.code_branch))
-    if pfr_keys_list is not None:
-        stmt = stmt.where(
-            tuple_(ph.case_name, ph.start_time, ph.platform).in_(pfr_keys_list)
-        )
+    # 跨表筛选：EXISTS 子查询（Spec 4.2），执行键三字段精确匹配
+    if query.failure_owner or query.failed_type:
+        exists_conds = [
+            pfr.case_name == ph.case_name,
+            pfr.failed_batch == ph.start_time,
+            pfr.platform == ph.platform,
+        ]
+        if query.failed_type:
+            exists_conds.append(pfr.failed_type.in_(query.failed_type))
+        if query.failure_owner:
+            exists_conds.append(pfr.owner.in_(query.failure_owner))
+        stmt = stmt.where(exists(select(1).select_from(pfr).where(and_(*exists_conds))))
 
-    # ===== 第三步：总记录数 =====
+    # ===== 第二步：总记录数 =====
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await db.execute(count_stmt)).scalar() or 0
 
-    # ===== 第四步：排序 + 分页 =====
+    # ===== 第三步：排序 + 分页 =====
     sort_col = getattr(ph, query.sort_field, None) if query.sort_field else None
     if sort_col and query.sort_field in ALLOWED_SORT_FIELDS and query.sort_order:
         if query.sort_order.lower() == "asc":
@@ -88,14 +100,14 @@ async def list_history(
         stmt = stmt.order_by(ph.created_at.desc())
     stmt = stmt.offset((query.page - 1) * query.page_size).limit(query.page_size)
 
-    # ===== 第五步：执行主表查询 =====
+    # ===== 第四步：执行主表查询 =====
     result = await db.execute(stmt)
     rows = result.scalars().all()
 
     if not rows:
         return [], total
 
-    # ===== 第六步：根据当前页结果批量查 pipeline_failure_reason，拼装 failure_owner、failed_type =====
+    # ===== 第五步：根据当前页结果批量查 pipeline_failure_reason，拼装 failure_owner、failed_type =====
     keys = list({(r.case_name, r.start_time, r.platform) for r in rows})
     pfr_lookup: Dict[Tuple[Optional[str], Optional[str], Optional[str]], Tuple[Optional[str], Optional[str]]] = {
         k: (None, None) for k in keys
