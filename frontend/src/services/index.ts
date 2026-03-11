@@ -135,3 +135,37 @@ export const historyApi = {
     return request.post("/history/failure-process", data) as any;
   },
 };
+
+// --- Dashboard API ---
+
+export interface LatestBatchItem {
+  batch: string;
+  total_case_num: number;
+  passed_num: number;
+  failed_num: number;
+  pass_rate: number;
+  batch_start: string | null;
+  batch_end: string | null;
+  result: string;
+}
+
+export interface BatchTrendItem {
+  batch: string;
+  total_case_num: number;
+  passed_num: number;
+  failed_num: number;
+  pass_rate: number;
+  batch_start: string | null;
+}
+
+export const dashboardApi = {
+  latestBatch: (): Promise<LatestBatchItem | null> =>
+    request.get("/dashboard/latest-batch") as Promise<LatestBatchItem | null>,
+  batchTrend: (
+    limit = 30,
+    codeBranch: "master" | "bugfix" = "master"
+  ): Promise<{ items: BatchTrendItem[] }> =>
+    request.get("/dashboard/batch-trend", {
+      params: { limit, code_branch: codeBranch },
+    }) as Promise<{ items: BatchTrendItem[] }>,
+};
