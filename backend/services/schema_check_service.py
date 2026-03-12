@@ -391,14 +391,23 @@ def format_diff_report(diffs: List[Dict[str, Any]]) -> str:
 
 
 async def run_schema_check() -> Tuple[bool, List[Dict[str, Any]]]:
-    """主入口：执行表结构一致性校验，返回 (是否一致, 差异列表)。"""
-    from backend.core.database import engine
-    db_name = _parse_db_name_from_url(settings.DATABASE_URL)
-    if not db_name:
-        raise ValueError("无法从 DATABASE_URL 解析数据库名")
-    project_root = Path(__file__).resolve().parent.parent.parent
-    database_dir = project_root / "database"
-    expected = get_expected_schema(database_dir)
-    actual = await get_actual_schema(engine, db_name)
-    diffs = compare_schemas(expected, actual)
-    return (len(diffs) == 0, diffs)
+    """主入口：执行表结构一致性校验，返回 (是否一致, 差异列表)。
+
+    使用独立引擎，避免在 asyncio.run() 的临时 loop 中创建全局 engine，
+    否则 uvicorn 启动后登录等请求会因 Event loop is closed / Future attached to different loop 报错。
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    engine = create_async_engine(settings.DATABASE_URL, echo=False)
+    try:
+        db_name = _parse_db_name_from_url(settings.DATABASE_URL)
+        if not db_name:
+            raise ValueError("无法从 DATABASE_URL 解析数据库名")
+        project_root = Path(__file__).resolve().parent.parent.parent
+        database_dir = project_root / "database"
+        expected = get_expected_schema(database_dir)
+        actual = await get_actual_schema(engine, db_name)
+        diffs = compare_schemas(expected, actual)
+        return (len(diffs) == 0, diffs)
+    finally:
+        await engine.dispose()
