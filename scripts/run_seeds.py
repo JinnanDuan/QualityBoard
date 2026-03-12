@@ -62,6 +62,7 @@ async def main():
         root / "database" / "seed_case_failed_type.sql",
         root / "database" / "seed_ums_module_owner.sql",
         root / "database" / "seed_pipeline_history.sql",
+        root / "database" / "seed_pipeline_overview.sql",
         root / "database" / "seed_pipeline_failure_reason.sql",
     ]
 
