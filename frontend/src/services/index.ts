@@ -31,6 +31,7 @@ export interface HistoryItem {
   analyzed: number | null;
   failure_owner: string | null;
   failed_type: string | null;
+  failure_analyzer: string | null;
 }
 
 export interface HistoryQueryParams {

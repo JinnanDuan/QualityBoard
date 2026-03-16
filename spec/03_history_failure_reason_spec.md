@@ -57,10 +57,11 @@
 |--------|----------|----------|
 | failure_owner | 跟踪人 | 纯文本，无关联记录时显示「—」 |
 | failed_type | 失败原因 | 纯文本，无关联记录时显示「—」 |
+| failure_analyzer | 分析人 | 纯文本，无关联记录时显示「—」 |
 
 **说明：**
 - 失败归因区与基本信息区中的「用例开发责任人」明确区分：前者为 `pipeline_failure_reason.owner`（失败跟踪人），后者为 `pipeline_history.owner`（用例开发责任人）。
-- 若未来需展示 `reason`（详细失败原因）、`analyzer`（分析人）等字段，可在此区扩展，本次规约仅包含 `failure_owner`、`failed_type`。
+- `failure_analyzer` 来自 `pipeline_failure_reason.analyzer`，表示失败原因分析人。若未来需展示 `reason`（详细失败原因）等字段，可在此区扩展。
 
 ---
 
@@ -113,5 +114,6 @@
 |------|--------|--------|------|
 | failure_owner | ✓ | ✓ 失败归因区 | ✓ |
 | failed_type | ✓ | ✓ 失败归因区 | ✓ |
+| failure_analyzer | — | ✓ 失败归因区 | — |
 
 **数据来源说明：** 以上两字段均来自 `pipeline_failure_reason` 表，通过 `(case_name, start_time, platform)` 与 `(case_name, failed_batch, platform)` 关联 `pipeline_history`。关联关系为 0 或 1。

@@ -125,14 +125,14 @@ async def get_history_list(
         sort_order=sort_order,
     )
     # 调用 Service 层的 list_history 函数，传入数据库会话和查询参数
-    # 返回值是 (items, total)，items 为 (ph, failure_owner, failed_type) 元组列表
+    # 返回值是 (items, total)，items 为 (ph, failure_owner, failed_type, failure_analyzer) 元组列表
     items, total = await list_history(db, query)
-    # 组装 HistoryItem：从 ORM 转 Schema，并注入 failure_owner、failed_type
+    # 组装 HistoryItem：从 ORM 转 Schema，并注入 failure_owner、failed_type、failure_analyzer
     result_items = [
         HistoryItem.model_validate(ph).model_copy(
-            update={"failure_owner": fo, "failed_type": ft}
+            update={"failure_owner": fo, "failed_type": ft, "failure_analyzer": fa}
         )
-        for ph, fo, ft in items
+        for ph, fo, ft, fa in items
     ]
     return PageResponse(
         items=result_items,

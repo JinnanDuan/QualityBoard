@@ -1090,9 +1090,13 @@ export default function HistoryPage() {
                     <Text strong>跟踪人：</Text>
                     {drawerRecord.failure_owner ?? "—"}
                   </div>
-                  <div>
+                  <div style={{ marginBottom: 8 }}>
                     <Text strong>失败原因：</Text>
                     {drawerRecord.failed_type ?? "—"}
+                  </div>
+                  <div>
+                    <Text strong>分析人：</Text>
+                    {drawerRecord.failure_analyzer ?? "—"}
                   </div>
                 </div>
               </>

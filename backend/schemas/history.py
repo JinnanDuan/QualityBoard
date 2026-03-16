@@ -45,6 +45,7 @@ class HistoryItem(BaseModel):
     analyzed: Optional[int] = 0                   # 是否已分析 (1=是, 0=否)
     failure_owner: Optional[str] = None           # 失败跟踪人（来自 pipeline_failure_reason.owner）
     failed_type: Optional[str] = None             # 失败原因分类（来自 pipeline_failure_reason.failed_type）
+    failure_analyzer: Optional[str] = None         # 分析人（来自 pipeline_failure_reason.analyzer）
 
     # model_config 是 Pydantic v2 的配置方式（替代 v1 的 class Config）
     # "from_attributes": True 的作用：
