@@ -57,11 +57,18 @@
 |--------|----------|----------|
 | failure_owner | 跟踪人 | 纯文本，无关联记录时显示「—」 |
 | failed_type | 失败原因 | 纯文本，无关联记录时显示「—」 |
+| reason | 详细原因 | 长文本，无关联记录或内容为空时显示「—」 |
 | failure_analyzer | 分析人 | 纯文本，无关联记录时显示「—」 |
+| analyzed_at | 分析时间 | 纯文本，展示为「YYYY-MM-DD HH:mm:ss」，无关联记录或时间为空时显示「—」 |
 
 **说明：**
 - 失败归因区与基本信息区中的「用例开发责任人」明确区分：前者为 `pipeline_failure_reason.owner`（失败跟踪人），后者为 `pipeline_history.owner`（用例开发责任人）。
-- `failure_analyzer` 来自 `pipeline_failure_reason.analyzer`，表示失败原因分析人。若未来需展示 `reason`（详细失败原因）等字段，可在此区扩展。
+- 展示顺序固定为：**跟踪人 → 失败原因 → 详细原因 → 分析人 → 分析时间**。
+- `reason` 对应 `pipeline_failure_reason.reason` 字段，用于展示详细失败原因。前端展示需保留原始文本中的换行和缩进（建议使用 `white-space: pre-wrap`），空值时统一展示为「—」。
+- 详细原因区域默认采用固定高度（约等于 3 行文本）+ 内部滚动的方式展示，当内容超出高度时允许纵向滚动查看全部内容。
+- 详细原因区域应提供「展开 / 收起」能力：收起时使用固定高度预览（约 3 行），展开时放宽高度限制，便于查看更多内容；再次收起时恢复到预览高度。
+- `failure_analyzer` 来自 `pipeline_failure_reason.analyzer`，表示失败原因分析人。
+- `analyzed_at` 为分析时间字段（具体字段名可与实现对齐），建议展示格式为「YYYY-MM-DD HH:mm:ss」，无值时统一展示为「—」。
 
 ---
 

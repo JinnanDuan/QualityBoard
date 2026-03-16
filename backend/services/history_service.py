@@ -28,7 +28,19 @@ ALLOWED_SORT_FIELDS = {
 
 async def list_history(
     db: AsyncSession, query: HistoryQuery
-) -> Tuple[List[Tuple[PipelineHistory, Optional[str], Optional[str], Optional[str]]], int]:
+) -> Tuple[
+    List[
+        Tuple[
+            PipelineHistory,
+            Optional[str],
+            Optional[str],
+            Optional[str],
+            Optional[str],
+            Optional[pfr.updated_at.__class__],
+        ]
+    ],
+    int,
+]:
     """
     按 Spec 07：条件合并 + EXISTS 跨表筛选，禁止 JOIN、禁止结果集驱动。
     按 Spec 08：未选 start_time 时注入默认最近 30 批，缩小扫描范围。
@@ -107,27 +119,46 @@ async def list_history(
     if not rows:
         return [], total
 
-    # ===== 第五步：根据当前页结果批量查 pipeline_failure_reason，拼装 failure_owner、failed_type、failure_analyzer =====
+    # ===== 第五步：根据当前页结果批量查 pipeline_failure_reason，拼装 failure_owner、failed_type、reason、failure_analyzer、分析时间 =====
     keys = list({(r.case_name, r.start_time, r.platform) for r in rows})
-    pfr_lookup: Dict[Tuple[Optional[str], Optional[str], Optional[str]], Tuple[Optional[str], Optional[str], Optional[str]]] = {
-        k: (None, None, None) for k in keys
-    }
+    pfr_lookup: Dict[
+        Tuple[Optional[str], Optional[str], Optional[str]],
+        Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[pfr.updated_at.__class__]],
+    ] = {k: (None, None, None, None, None) for k in keys}
 
-    pfr_stmt = select(pfr.case_name, pfr.failed_batch, pfr.platform, pfr.owner, pfr.failed_type, pfr.analyzer).where(
+    pfr_stmt = select(
+        pfr.case_name,
+        pfr.failed_batch,
+        pfr.platform,
+        pfr.owner,
+        pfr.failed_type,
+        pfr.reason,
+        pfr.analyzer,
+        pfr.updated_at,
+    ).where(
         tuple_(pfr.case_name, pfr.failed_batch, pfr.platform).in_(keys)
     )
     pfr_result = await db.execute(pfr_stmt)
     for r in pfr_result.all():
         k = (r[0], r[1], r[2])
-        if k in pfr_lookup and pfr_lookup[k] == (None, None, None):
-            pfr_lookup[k] = (r[3], r[4], r[5])
+        if k in pfr_lookup and pfr_lookup[k] == (None, None, None, None, None):
+            pfr_lookup[k] = (r[3], r[4], r[5], r[6], r[7])
 
-    items = [
-        (row, pfr_lookup[(row.case_name, row.start_time, row.platform)][0],
-         pfr_lookup[(row.case_name, row.start_time, row.platform)][1],
-         pfr_lookup[(row.case_name, row.start_time, row.platform)][2])
-        for row in rows
-    ]
+    items: List[
+        Tuple[
+            PipelineHistory,
+            Optional[str],
+            Optional[str],
+            Optional[str],
+            Optional[str],
+            Optional[pfr.updated_at.__class__],
+        ]
+    ] = []
+    for row in rows:
+        fo, ft, reason, fa, analyzed_at = pfr_lookup[
+            (row.case_name, row.start_time, row.platform)
+        ]
+        items.append((row, fo, ft, reason, fa, analyzed_at))
     return items, total
 
 

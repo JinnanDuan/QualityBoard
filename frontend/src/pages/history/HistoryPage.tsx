@@ -154,6 +154,7 @@ export default function HistoryPage() {
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<HistoryItem | null>(null);
+  const [reasonExpanded, setReasonExpanded] = useState(false);
   const [form] = Form.useForm();
   const [processForm] = Form.useForm();  // 标注弹窗表单
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20 });
@@ -420,6 +421,7 @@ export default function HistoryPage() {
   const handleRowClick = (record: HistoryItem) => {
     setDrawerRecord(record);
     setDrawerVisible(true);
+    setReasonExpanded(false);
   };
 
   const handleResize =
@@ -1090,14 +1092,61 @@ export default function HistoryPage() {
                     <Text strong>跟踪人：</Text>
                     {drawerRecord.failure_owner ?? "—"}
                   </div>
-                  <div style={{ marginBottom: 8 }}>
+              <div style={{ marginBottom: 8 }}>
                     <Text strong>失败原因：</Text>
                     {drawerRecord.failed_type ?? "—"}
                   </div>
-                  <div>
+              {/* 粗略按字符数判断是否“超过约 3 行”，控制是否展示展开/收起按钮 */}
+              {(() => {
+                const text = drawerRecord.reason ?? "";
+                const canExpand = text.length > 100; // 约等于 3 行以上的长文案
+                return (
+              <div style={{ marginBottom: 8 }}>
+                <Text strong>详细原因：</Text>
+                {text ? (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      padding: 8,
+                      borderRadius: 4,
+                      background: "#fafafa",
+                      border: "1px solid #f0f0f0",
+                      maxHeight: reasonExpanded ? 200 : 72, // 约 3 行高度
+                      overflowY: "auto",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {text}
+                  </div>
+                ) : (
+                  "—"
+                )}
+                {text && canExpand && (
+                  <div style={{ marginTop: 4, textAlign: "right" }}>
+                    <a
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReasonExpanded((prev) => !prev);
+                      }}
+                    >
+                      {reasonExpanded ? "收起" : "展开更多"}
+                    </a>
+                  </div>
+                )}
+              </div>
+                );
+              })()}
+              <div style={{ marginBottom: 8 }}>
                     <Text strong>分析人：</Text>
                     {drawerRecord.failure_analyzer ?? "—"}
                   </div>
+              <div>
+                <Text strong>分析时间：</Text>
+                {drawerRecord.analyzed_at
+                  ? drawerRecord.analyzed_at.replace("T", " ")
+                  : "—"}
+              </div>
                 </div>
               </>
             )}
