@@ -342,8 +342,10 @@ export default function HistoryPage() {
   };
 
   const selectedRows = data.filter((r) => selectedRowKeys.includes(r.id));
-  const hasSelectedFailed = selectedRows.some((r) => r.case_result === "failed");
-  const processBtnEnabled = selectedRowKeys.length > 0 && hasSelectedFailed;  // 至少勾选一条失败记录时可用
+  const hasSelectedFailedOrError = selectedRows.some(
+    (r) => r.case_result === "failed" || r.case_result === "error"
+  );
+  const processBtnEnabled = selectedRowKeys.length > 0 && hasSelectedFailedOrError;  // 至少勾选一条失败/异常记录时可用
 
   const openProcessModal = async () => {
     if (!processBtnEnabled) return;
@@ -506,7 +508,7 @@ export default function HistoryPage() {
       ellipsis: { showTitle: false },
       render: (val: string | null) => {
         if (!val) return "—";
-        const color = val === "passed" ? "green" : val === "failed" ? "red" : "default";
+        const color = val === "passed" ? "green" : val === "failed" ? "red" : val === "error" ? "orange" : "default";
         return (
           <EllipsisTooltip title={val} placement="topLeft">
             <Tag color={color}>{val}</Tag>
@@ -742,9 +744,10 @@ export default function HistoryPage() {
                 filterOption={(input, option) =>
                   (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
                 }
-                options={[
+                options={options?.case_result?.map((v) => ({ label: v, value: v })) ?? [
                   { label: "passed", value: "passed" },
                   { label: "failed", value: "failed" },
+                  { label: "error", value: "error" },
                 ]}
               />
             </Form.Item>
@@ -886,7 +889,7 @@ export default function HistoryPage() {
           selectedRowKeys,
           onChange: (keys) => setSelectedRowKeys(keys),
           getCheckboxProps: (record) => ({
-            disabled: record.case_result !== "failed",  // 方案 A：仅 failed 行可勾选
+            disabled: record.case_result !== "failed" && record.case_result !== "error",  // failed 与 error 行可勾选
           }),
         }}
         components={{
@@ -1074,7 +1077,7 @@ export default function HistoryPage() {
               </div>
             </div>
 
-            {drawerRecord.case_result === "failed" && (
+            {(drawerRecord.case_result === "failed" || drawerRecord.case_result === "error") && (
               <>
                 <Divider style={{ margin: "16px 0" }} />
                 <div style={{ marginBottom: 16 }}>

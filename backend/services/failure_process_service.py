@@ -72,7 +72,8 @@ async def process_failure(
     if not req.history_ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="history_ids 不能为空")
 
-    # 1. 校验并获取所有 history 记录，确保存在且 case_result=failed
+    # 1. 校验并获取所有 history 记录，确保存在且 case_result 为 failed 或 error
+    ALLOWED_RESULTS = ("failed", "error")
     stmt = select(PipelineHistory).where(PipelineHistory.id.in_(req.history_ids))
     result = await db.execute(stmt)
     histories = list(result.scalars().all())
@@ -84,10 +85,10 @@ async def process_failure(
         )
 
     for h in histories:
-        if h.case_result != "failed":
+        if h.case_result not in ALLOWED_RESULTS:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"记录 id={h.id} 不是失败记录，无法标注",
+                detail=f"记录 id={h.id} 不是失败/异常记录，无法标注",
             )
 
     # 2. 更新 pipeline_history.analyzed = 1

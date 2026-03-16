@@ -161,7 +161,7 @@ async def get_history_options(db: AsyncSession) -> HistoryFilterOptions:
         subtask=subtask,
         case_name=case_name,
         main_module=main_module,
-        case_result=["passed", "failed"],
+        case_result=["passed", "failed", "error"],
         case_level=case_level,
         platform=platform,
         code_branch=code_branch,

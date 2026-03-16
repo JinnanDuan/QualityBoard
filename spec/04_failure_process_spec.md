@@ -39,11 +39,11 @@
 
 ### 2.3 对 case_result 的限制
 
-- **仅允许对 `case_result = 'failed'` 的记录进行标注**，原因：失败归因语义上仅针对失败用例
+- **允许对 `case_result = 'failed'` 或 `case_result = 'error'` 的记录进行标注**，原因：失败归因语义上针对失败用例与异常用例（如执行超时、环境异常等）
 - **勾选行为**：
-  - 方案 A（推荐）：勾选框仅对 `case_result = 'failed'` 的行启用，passed 等行禁用勾选
-  - 方案 B：允许勾选任意行，点击「处理」时过滤掉非 failed 记录，仅对 failed 记录弹窗；若全部为 passed，则提示「请至少选择一条失败记录」
-- **规约采用方案 A**：非 failed 行不显示勾选框或勾选框禁用，避免用户误选
+  - 方案 A（推荐）：勾选框仅对 `case_result = 'failed'` 或 `case_result = 'error'` 的行启用，passed 等行禁用勾选
+  - 方案 B：允许勾选任意行，点击「处理」时过滤掉非 failed/error 记录，仅对 failed/error 记录弹窗；若全部为 passed，则提示「请至少选择一条失败/异常记录」
+- **规约采用方案 A**：非 failed/error 行不显示勾选框或勾选框禁用，避免用户误选
 
 ### 2.4 与分页的关系
 
@@ -63,7 +63,7 @@
 
 | 状态 | 条件 | 表现 |
 |------|------|------|
-| 可用 | 至少勾选 1 条 `case_result = 'failed'` 的记录 | 可点击，触发弹窗 |
+| 可用 | 至少勾选 1 条 `case_result = 'failed'` 或 `'error'` 的记录 | 可点击，触发弹窗 |
 | 禁用 | 未勾选任何记录，或勾选的全部为 passed | 置灰，不可点击 |
 | 加载中 | 提交请求进行中 | 可显示 loading 状态（可选） |
 
@@ -170,7 +170,7 @@
 
 **后端校验**
 
-- 校验 `history_ids` 对应的记录存在且 `case_result = 'failed'`（防止篡改请求）
+- 校验 `history_ids` 对应的记录存在且 `case_result` 为 `'failed'` 或 `'error'`（防止篡改请求）
 - 校验 `failed_type`、`owner`、`reason` 非空；当 `failed_type` 为 `bug` 时校验 `module` 非空
 
 ---
