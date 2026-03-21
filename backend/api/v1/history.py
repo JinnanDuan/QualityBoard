@@ -31,9 +31,22 @@ from backend.schemas.common import PageResponse
 # HistoryItem:  单条记录的响应格式；HistoryQuery: 查询参数的格式；HistoryFilterOptions: 筛选选项
 from backend.schemas.history import HistoryFilterOptions, HistoryItem, HistoryQuery
 from backend.schemas.failure_process import FailureProcessOptions, FailureProcessRequest  # 失败标注 Schema
+from backend.schemas.inherit_failure_reason import (
+    InheritBatchOptionsResponse,
+    InheritFailureReasonRequest,
+    InheritFailureReasonResponse,
+    InheritSourceOptionsResponse,
+    InheritSourceRecordsResponse,
+)
 # list_history, get_history_options: Service 层的查询函数
 from backend.services.history_service import get_history_options, list_history
 from backend.services.failure_process_service import get_failure_process_options, process_failure  # 失败标注 Service
+from backend.services.inherit_failure_reason_service import (
+    get_inherit_batch_options,
+    get_inherit_source_options,
+    get_inherit_source_records,
+    inherit_failure_reason,
+)
 
 # 创建一个路由器实例:
 # - prefix="/history": 这个路由器下的所有端点都自动加上 /history 前缀
@@ -67,6 +80,50 @@ async def post_failure_process(
     analyzer_employee_id = payload.get("sub", "")  # JWT 的 sub 存的是工号
     await process_failure(db, req, analyzer_employee_id)
     return {"success": True, "message": "标注成功"}
+
+
+@router.get("/inherit-batch-options", response_model=InheritBatchOptionsResponse)
+async def get_inherit_batch_options_endpoint(
+    exclude_batch: Optional[str] = Query(None, description="排除的批次"),
+    db: AsyncSession = Depends(get_db),
+    payload: dict = Depends(get_current_user),
+):
+    """获取继承弹窗的批次选项，排除当前批次，按时间倒序。"""
+    return await get_inherit_batch_options(db, exclude_batch)
+
+
+@router.get("/inherit-source-options", response_model=InheritSourceOptionsResponse)
+async def get_inherit_source_options_endpoint(
+    case_name: Optional[str] = Query(None, description="源用例名，用于联动缩小 platforms、batches"),
+    platform: Optional[str] = Query(None, description="源平台，用于联动缩小 batches"),
+    db: AsyncSession = Depends(get_db),
+    payload: dict = Depends(get_current_user),
+):
+    """获取用例维度源选择三字段选项（case_names、platforms、batches），支持级联筛选。"""
+    return await get_inherit_source_options(db, case_name, platform)
+
+
+@router.get("/inherit-source-records", response_model=InheritSourceRecordsResponse)
+async def get_inherit_source_records_endpoint(
+    case_name: str = Query(..., description="源用例名，必填"),
+    platform: Optional[str] = Query(None, description="源平台，可选"),
+    batch: Optional[str] = Query(None, description="源批次，可选"),
+    db: AsyncSession = Depends(get_db),
+    payload: dict = Depends(get_current_user),
+):
+    """根据三字段筛选，返回匹配的源记录列表，供用户选择后再执行继承。"""
+    return await get_inherit_source_records(db, case_name, platform, batch)
+
+
+@router.post("/inherit-failure-reason", response_model=InheritFailureReasonResponse)
+async def post_inherit_failure_reason(
+    req: InheritFailureReasonRequest,
+    db: AsyncSession = Depends(get_db),
+    payload: dict = Depends(get_current_user),
+):
+    """执行失败原因继承，支持批次维度和用例维度。"""
+    operator_employee_id = payload.get("sub", "")
+    return await inherit_failure_reason(db, req, operator_employee_id)
 
 
 # @router.get("") 定义一个 GET 请求的端点
@@ -125,12 +182,13 @@ async def get_history_list(
         sort_order=sort_order,
     )
     # 调用 Service 层的 list_history 函数，传入数据库会话和查询参数
-    # 返回值是 (items, total)，items 为 (ph, failure_owner, failed_type, reason, failure_analyzer, analyzed_at) 元组列表
+    # 返回值是 (items, total)，items 为 (ph, failure_owner, failed_type, reason, failure_analyzer, analyzed_at, case_owner_display) 元组列表
     items, total = await list_history(db, query)
-    # 组装 HistoryItem：从 ORM 转 Schema，并注入 failure_owner、failed_type、reason、failure_analyzer、分析时间
+    # 组装 HistoryItem：从 ORM 转 Schema，并注入 failure_*；owner 为用例开发责任人展示（main_module→ums_module_owner，姓名+工号）
     result_items = [
         HistoryItem.model_validate(ph).model_copy(
             update={
+                "owner": case_owner_display,
                 "failure_owner": fo,
                 "failed_type": ft,
                 "reason": reason,
@@ -138,7 +196,7 @@ async def get_history_list(
                 "analyzed_at": analyzed_at,
             }
         )
-        for ph, fo, ft, reason, fa, analyzed_at in items
+        for ph, fo, ft, reason, fa, analyzed_at, case_owner_display in items
     ]
     return PageResponse(
         items=result_items,

@@ -36,7 +36,7 @@
 | main_module | 纯文本 |
 | module | 纯文本（模块名，可有多值） |
 | case_level | 纯文本 |
-| owner | 纯文本（用例开发责任人） |
+| owner | 纯文本（用例开发责任人：由 `main_module` 关联 `ums_module_owner` 拼接姓名+工号，非直接读 `pipeline_history.owner`） |
 | platform | 纯文本 |
 | code_branch | 纯文本 |
 | screenshot_url | 可点击链接（新窗口打开），无值则显示「暂无」 |
@@ -49,7 +49,7 @@
 | log_url | 可点击链接（新窗口打开），无值则显示「暂无」 |
 | pipeline_url | 可点击链接（新窗口打开），无值则显示「暂无」 |
 
-**说明：** `owner` 在 Drawer 基本信息区展示，名称为「用例开发责任人」。`owner_history` 本次实现不考虑。
+**说明：** API 响应字段 `owner` 在 Drawer 基本信息区展示为「用例开发责任人」，值为按 `main_module = ums_module_owner.module` 解析后的「姓名+工号」展示串。`owner_history` 本次实现不考虑。
 
 ---
 

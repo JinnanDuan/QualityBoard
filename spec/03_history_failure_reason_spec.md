@@ -62,7 +62,7 @@
 | analyzed_at | 分析时间 | 纯文本，展示为「YYYY-MM-DD HH:mm:ss」，无关联记录或时间为空时显示「—」 |
 
 **说明：**
-- 失败归因区与基本信息区中的「用例开发责任人」明确区分：前者为 `pipeline_failure_reason.owner`（失败跟踪人），后者为 `pipeline_history.owner`（用例开发责任人）。
+- 失败归因区与基本信息区中的「用例开发责任人」明确区分：前者为 `pipeline_failure_reason.owner`（失败跟踪人），后者为列表接口响应中的 `owner` 字段，由 `main_module` 关联 `ums_module_owner`（必要时补 `ums_email`）拼接姓名+工号，**不是**直接读取 `pipeline_history.owner` 列。
 - 展示顺序固定为：**跟踪人 → 失败原因 → 详细原因 → 分析人 → 分析时间**。
 - `reason` 对应 `pipeline_failure_reason.reason` 字段，用于展示详细失败原因。前端展示需保留原始文本中的换行和缩进（建议使用 `white-space: pre-wrap`），空值时统一展示为「—」。
 - 详细原因区域默认采用固定高度（约等于 3 行文本）+ 内部滚动的方式展示，当内容超出高度时允许纵向滚动查看全部内容。

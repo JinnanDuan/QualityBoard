@@ -39,7 +39,7 @@ class HistoryItem(BaseModel):
     case_level: str = ""                          # 用例级别 (P0/P1/P2)
     main_module: str = ""                         # 主模块
     owner_history: Optional[str] = None           # 责任人变更记录
-    owner: Optional[str] = None                   # 当前责任人
+    owner: Optional[str] = None                   # 用例开发责任人展示（姓名+工号，由 main_module 关联 ums_module_owner 计算，非直接读 ph.owner）
     platform: Optional[str] = None                # 平台 (Android/iOS/Web)
     code_branch: Optional[str] = None             # 代码分支
     analyzed: Optional[int] = 0                   # 是否已分析 (1=是, 0=否)

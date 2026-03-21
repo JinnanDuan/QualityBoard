@@ -25,6 +25,7 @@ export interface HistoryItem {
   case_level: string;
   main_module: string;
   owner_history: string | null;
+  /** 用例开发责任人：姓名+工号（后端按 main_module→ums_module_owner 拼接） */
   owner: string | null;
   platform: string | null;
   code_branch: string | null;
@@ -97,6 +98,37 @@ export interface FailureProcessRequest {
   module?: string;  // 仅 failed_type=bug 时必填
 }
 
+export interface InheritFailureReasonRequest {
+  inherit_mode: "batch" | "case";
+  source_batch?: string;
+  target_batch?: string;
+  source_pfr_id?: number;  // 用例维度时必填，用户从筛选结果中选择的 pfr.id
+  history_ids?: number[];
+}
+
+export interface InheritSourceRecordItem {
+  id: number;
+  case_name: string | null;
+  platform: string | null;
+  failed_batch: string | null;
+  failed_type: string | null;
+  owner: string | null;
+  reason: string | null;
+}
+
+export interface InheritFailureReasonResponse {
+  success: boolean;
+  inherited_count: number;
+  skipped_count: number;
+  message: string;
+}
+
+export interface InheritSourceOptions {
+  case_names: string[];
+  platforms: string[];
+  batches: string[];
+}
+
 // 将多选参数转为 URLSearchParams（key=val1&key=val2），供 FastAPI List 解析
 function toSearchParams(params?: HistoryQueryParams): URLSearchParams {
   const p = new URLSearchParams();
@@ -136,6 +168,33 @@ export const historyApi = {
   /** 提交失败记录标注 */
   failureProcess(data: FailureProcessRequest): Promise<{ success: boolean; message: string }> {
     return request.post("/history/failure-process", data) as any;
+  },
+  /** 获取继承弹窗批次选项 */
+  inheritBatchOptions(excludeBatch?: string): Promise<{ batches: string[] }> {
+    const params = excludeBatch ? { exclude_batch: excludeBatch } : {};
+    return request.get("/history/inherit-batch-options", { params }) as any;
+  },
+  /** 获取继承弹窗用例维度源选择三字段选项 */
+  inheritSourceOptions(caseName?: string, platform?: string): Promise<InheritSourceOptions> {
+    const params: Record<string, string> = {};
+    if (caseName) params.case_name = caseName;
+    if (platform) params.platform = platform;
+    return request.get("/history/inherit-source-options", { params }) as any;
+  },
+  /** 根据三字段筛选，返回匹配的源记录列表，供用户选择 */
+  inheritSourceRecords(
+    caseName: string,
+    platform?: string,
+    batch?: string
+  ): Promise<{ records: InheritSourceRecordItem[] }> {
+    const params: Record<string, string> = { case_name: caseName };
+    if (platform) params.platform = platform;
+    if (batch) params.batch = batch;
+    return request.get("/history/inherit-source-records", { params }) as any;
+  },
+  /** 提交失败原因继承（大批量可能较慢，单独 60s 超时） */
+  inheritFailureReason(data: InheritFailureReasonRequest): Promise<InheritFailureReasonResponse> {
+    return request.post("/history/inherit-failure-reason", data, { timeout: 60000 }) as any;
   },
 };
 

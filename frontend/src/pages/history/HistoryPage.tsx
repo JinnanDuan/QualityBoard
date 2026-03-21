@@ -11,6 +11,7 @@ import {
   Input,  // TextArea 用
   message,  // 成功/失败提示
   Modal,  // 标注弹窗
+  Radio,
   Row,
   Col,
   Select,
@@ -28,6 +29,9 @@ import {
   type HistoryQueryParams,
   type FailureProcessOptions,  // 标注弹窗选项
   type FailureProcessRequest,  // 标注提交请求
+  type InheritFailureReasonRequest,
+  type InheritSourceOptions,
+  type InheritSourceRecordItem,
 } from "../../services";
 
 const { Text } = Typography;
@@ -164,6 +168,20 @@ export default function HistoryPage() {
   const [failureProcessOptions, setFailureProcessOptions] = useState<FailureProcessOptions | null>(null);
   const [processSubmitLoading, setProcessSubmitLoading] = useState(false);
   const processFailedType = Form.useWatch("failed_type", processForm);  // 监听失败类型，控制模块字段显隐
+  const [inheritForm] = Form.useForm();
+  const [inheritModalVisible, setInheritModalVisible] = useState(false);
+  const [inheritSubmitLoading, setInheritSubmitLoading] = useState(false);
+  const [inheritBatchOptions, setInheritBatchOptions] = useState<string[]>([]);
+  const [inheritBatchOptionsLoading, setInheritBatchOptionsLoading] = useState(false);
+  const [inheritSourceOptions, setInheritSourceOptions] = useState<InheritSourceOptions>({
+    case_names: [],
+    platforms: [],
+    batches: [],
+  });
+  const [inheritSourceOptionsLoading, setInheritSourceOptionsLoading] = useState(false);
+  const [inheritSourceRecords, setInheritSourceRecords] = useState<InheritSourceRecordItem[]>([]);
+  const [inheritSourceRecordsLoading, setInheritSourceRecordsLoading] = useState(false);
+  const inheritMode = Form.useWatch("inherit_mode", inheritForm);
 
   const paramsFromUrl = (): HistoryQueryParams => {
     const getList = (key: string) => {
@@ -347,6 +365,16 @@ export default function HistoryPage() {
     (r) => r.case_result === "failed" || r.case_result === "error"
   );
   const processBtnEnabled = selectedRowKeys.length > 0 && hasSelectedFailedOrError;  // 至少勾选一条失败/异常记录时可用
+  const currentBatch =
+    selectedRows.length === 0
+      ? undefined
+      : selectedRows.length === 1
+        ? selectedRows[0].start_time ?? undefined
+        : (() => {
+            const first = selectedRows[0]?.start_time;
+            return selectedRows.every((r) => r.start_time === first) ? first ?? undefined : undefined;
+          })();
+  const showBatchDimension = currentBatch != null;
 
   const openProcessModal = async () => {
     if (!processBtnEnabled) return;
@@ -413,6 +441,129 @@ export default function HistoryPage() {
   const handleProcessModalCancel = () => {
     setProcessModalVisible(false);
     processForm.resetFields();
+  };
+
+  const openInheritModal = async () => {
+    if (!processBtnEnabled) return;
+    setInheritModalVisible(true);
+    setInheritSourceRecords([]);
+    inheritForm.setFieldsValue({
+      inherit_mode: showBatchDimension ? "batch" : "case",
+      source_batch: undefined,
+      source_case_name: undefined,
+      source_platform: undefined,
+      source_pfr_id: undefined,
+    });
+    if (showBatchDimension) {
+      setInheritBatchOptionsLoading(true);
+      try {
+        const res = await historyApi.inheritBatchOptions(currentBatch);
+        setInheritBatchOptions(res.batches ?? []);
+      } catch (e: unknown) {
+        const err = e as { response?: { data?: { detail?: string } }; message?: string };
+        message.error(err?.response?.data?.detail || err?.message || "获取批次选项失败");
+      } finally {
+        setInheritBatchOptionsLoading(false);
+      }
+    } else {
+      setInheritSourceOptionsLoading(true);
+      try {
+        const res = await historyApi.inheritSourceOptions();
+        setInheritSourceOptions(res);
+      } catch (e: unknown) {
+        const err = e as { response?: { data?: { detail?: string } }; message?: string };
+        message.error(err?.response?.data?.detail || err?.message || "获取源选项失败");
+      } finally {
+        setInheritSourceOptionsLoading(false);
+      }
+    }
+  };
+
+  const handleInheritModalOk = async () => {
+    try {
+      const values = await inheritForm.validateFields();
+      const payload: InheritFailureReasonRequest = {
+        inherit_mode: values.inherit_mode,
+      };
+      if (values.inherit_mode === "batch") {
+        payload.source_batch = values.source_batch;
+        payload.target_batch = currentBatch!;
+      } else {
+        payload.source_pfr_id = values.source_pfr_id;
+        payload.history_ids = selectedRowKeys.map(Number);
+      }
+      setInheritSubmitLoading(true);
+      const res = await historyApi.inheritFailureReason(payload);
+      message.success(res.message || `继承成功，共继承 ${res.inherited_count} 条`);
+      setInheritModalVisible(false);
+      inheritForm.resetFields();
+      setSelectedRowKeys([]);
+      const params = paramsFromUrl();
+      await fetchData({
+        ...params,
+        page: params.page ?? 1,
+        page_size: params.page_size ?? 20,
+      });
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } }; message?: string };
+      const msg = err?.response?.data?.detail || err?.message || "继承失败";
+      if (typeof msg === "string") {
+        message.error(msg);
+      } else if (Array.isArray(msg)) {
+        const parts = (msg as Array<{ msg?: string }>).map((m) => m.msg || "");
+        message.error(parts.join("; "));
+      } else {
+        message.error("继承失败");
+      }
+    } finally {
+      setInheritSubmitLoading(false);
+    }
+  };
+
+  const handleInheritModalCancel = () => {
+    setInheritModalVisible(false);
+    inheritForm.resetFields();
+  };
+
+  const fetchInheritSourceOptions = async (caseName?: string, platform?: string) => {
+    setInheritSourceOptionsLoading(true);
+    try {
+      const res = await historyApi.inheritSourceOptions(caseName, platform);
+      setInheritSourceOptions(res);
+    } catch {
+      setInheritSourceOptions({ case_names: [], platforms: [], batches: [] });
+    } finally {
+      setInheritSourceOptionsLoading(false);
+    }
+  };
+
+  const fetchInheritSourceRecords = async () => {
+    const caseName = inheritForm.getFieldValue("source_case_name");
+    if (!caseName || !String(caseName).trim()) {
+      message.warning("请先选择源用例名");
+      return;
+    }
+    setInheritSourceRecordsLoading(true);
+    setInheritSourceRecords([]);
+    inheritForm.setFieldValue("source_pfr_id", undefined);
+    try {
+      const res = await historyApi.inheritSourceRecords(
+        String(caseName).trim(),
+        inheritForm.getFieldValue("source_platform") || undefined,
+        inheritForm.getFieldValue("source_batch") || undefined
+      );
+      setInheritSourceRecords(res.records ?? []);
+      if (!(res.records?.length)) {
+        message.info(
+          "未找到匹配的源记录。可尝试只填「源用例名」查询，或确认平台、批次是否与历史分析记录一致。"
+        );
+      }
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } }; message?: string };
+      message.error(err?.response?.data?.detail || err?.message || "查询失败");
+    } finally {
+      setInheritSourceRecordsLoading(false);
+    }
   };
 
   const isBugType = (failedReasonType: string) =>
@@ -879,6 +1030,14 @@ export default function HistoryPage() {
               分析处理
             </Button>
           </Col>
+          <Col>
+            <Button
+              onClick={openInheritModal}
+              disabled={!processBtnEnabled || loading}
+            >
+              继承失败原因
+            </Button>
+          </Col>
         </Row>
       </Form>
 
@@ -1023,6 +1182,180 @@ export default function HistoryPage() {
           >
             <Input.TextArea rows={4} placeholder="请输入详细原因" maxLength={2000} showCount />
           </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="继承失败原因"
+        width={520}
+        open={inheritModalVisible}
+        onOk={handleInheritModalOk}
+        onCancel={handleInheritModalCancel}
+        confirmLoading={inheritSubmitLoading}
+        okText="确定"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Form
+          form={inheritForm}
+          layout="vertical"
+          style={{ marginTop: 16 }}
+          onValuesChange={async (changed, all) => {
+            if ("inherit_mode" in changed) {
+              inheritForm.setFieldValue("source_batch", undefined);
+              inheritForm.setFieldValue("source_case_name", undefined);
+              inheritForm.setFieldValue("source_platform", undefined);
+              inheritForm.setFieldValue("source_pfr_id", undefined);
+              setInheritSourceRecords([]);
+              if (all.inherit_mode === "batch" && showBatchDimension) {
+                setInheritBatchOptionsLoading(true);
+                try {
+                  const res = await historyApi.inheritBatchOptions(currentBatch);
+                  setInheritBatchOptions(res.batches ?? []);
+                } catch {
+                  setInheritBatchOptions([]);
+                } finally {
+                  setInheritBatchOptionsLoading(false);
+                }
+              } else {
+                fetchInheritSourceOptions();
+              }
+            }
+            if ("source_case_name" in changed) {
+              inheritForm.setFieldValue("source_platform", undefined);
+              inheritForm.setFieldValue("source_batch", undefined);
+              inheritForm.setFieldValue("source_pfr_id", undefined);
+              setInheritSourceRecords([]);
+              fetchInheritSourceOptions(all.source_case_name);
+            }
+            if ("source_platform" in changed) {
+              inheritForm.setFieldValue("source_batch", undefined);
+              inheritForm.setFieldValue("source_pfr_id", undefined);
+              setInheritSourceRecords([]);
+              fetchInheritSourceOptions(all.source_case_name, all.source_platform);
+            }
+            if ("source_batch" in changed && (inheritMode ?? "case") === "case") {
+              inheritForm.setFieldValue("source_pfr_id", undefined);
+              setInheritSourceRecords([]);
+            }
+          }}
+        >
+          {showBatchDimension ? (
+            <Form.Item
+              name="inherit_mode"
+              label="继承维度"
+              rules={[{ required: true, message: "请选择继承维度" }]}
+            >
+              <Radio.Group>
+                <Radio value="batch">批次维度</Radio>
+                <Radio value="case">用例维度</Radio>
+              </Radio.Group>
+            </Form.Item>
+          ) : null}
+          {((inheritMode ?? "batch") === "batch" && showBatchDimension) && (
+            <Form.Item
+              name="source_batch"
+              label="源批次"
+              rules={[{ required: true, message: "请选择源批次" }]}
+            >
+              <Select
+                placeholder="请选择要继承的历史批次"
+                allowClear
+                showSearch
+                loading={inheritBatchOptionsLoading}
+                filterOption={(input, option) =>
+                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
+                }
+                options={inheritBatchOptions.map((v) => ({ label: v, value: v }))}
+              />
+            </Form.Item>
+          )}
+          {((inheritMode ?? "case") === "case" || !showBatchDimension) && (
+            <>
+              <Form.Item
+                name="source_case_name"
+                label="源用例名"
+                rules={[{ required: true, message: "请选择源用例名" }]}
+              >
+                <Select
+                  placeholder="请选择要继承失败原因的用例"
+                  allowClear
+                  showSearch
+                  loading={inheritSourceOptionsLoading}
+                  filterOption={(input, option) =>
+                    (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
+                  }
+                  options={[
+                    ...new Set([
+                      ...inheritSourceOptions.case_names,
+                      ...selectedRows.map((r) => r.case_name).filter((v): v is string => !!v),
+                    ]),
+                  ]
+                    .sort()
+                    .map((v) => ({ label: v, value: v }))}
+                />
+              </Form.Item>
+              <Form.Item name="source_platform" label="源平台">
+                <Select
+                  placeholder="可选，用于缩小范围"
+                  allowClear
+                  showSearch
+                  loading={inheritSourceOptionsLoading}
+                  filterOption={(input, option) =>
+                    (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
+                  }
+                  options={inheritSourceOptions.platforms.map((v) => ({ label: v, value: v }))}
+                />
+              </Form.Item>
+              <Form.Item name="source_batch" label="源批次">
+                <Select
+                  placeholder="可选，用于缩小范围"
+                  allowClear
+                  showSearch
+                  loading={inheritSourceOptionsLoading}
+                  filterOption={(input, option) =>
+                    (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
+                  }
+                  options={inheritSourceOptions.batches.map((v) => ({ label: v, value: v }))}
+                />
+              </Form.Item>
+              <Form.Item>
+                <Button
+                  type="primary"
+                  onClick={fetchInheritSourceRecords}
+                  loading={inheritSourceRecordsLoading}
+                >
+                  查询
+                </Button>
+              </Form.Item>
+              {inheritSourceRecords.length > 0 && (
+                <Form.Item
+                  name="source_pfr_id"
+                  label="选择源记录"
+                  rules={[{ required: true, message: "请从查询结果中选择一条源记录" }]}
+                >
+                  <Radio.Group style={{ width: "100%" }}>
+                    <div style={{ maxHeight: 200, overflow: "auto", border: "1px solid #d9d9d9", borderRadius: 4, padding: 8 }}>
+                      {inheritSourceRecords.map((r) => (
+                        <div key={r.id} style={{ marginBottom: 8 }}>
+                          <Radio value={r.id}>
+                            <span style={{ marginRight: 8 }}>{r.platform ?? "—"}</span>
+                            <span style={{ marginRight: 8 }}>{r.failed_batch ?? "—"}</span>
+                            <span style={{ marginRight: 8 }}>{r.failed_type ?? "—"}</span>
+                            {r.reason ? (
+                              <span style={{ color: "#666" }} title={r.reason}>
+                                {r.reason.length > 30 ? `${r.reason.slice(0, 30)}…` : r.reason}
+                              </span>
+                            ) : null}
+                          </Radio>
+                        </div>
+                      ))}
+                    </div>
+                  </Radio.Group>
+                </Form.Item>
+              )}
+            </>
+          )}
         </Form>
       </Modal>
 
