@@ -123,6 +123,19 @@ export interface InheritFailureReasonResponse {
   message: string;
 }
 
+export interface OneClickAnalyzeRequest {
+  anchor_history_id: number;
+}
+
+export interface OneClickAnalyzeResponse {
+  success: boolean;
+  message: string;
+  batch: string;
+  applied_count: number;
+  skipped_no_owner_count: number;
+  skipped_not_eligible_count: number;
+}
+
 export interface InheritSourceOptions {
   case_names: string[];
   platforms: string[];
@@ -195,6 +208,10 @@ export const historyApi = {
   /** 提交失败原因继承（大批量可能较慢，单独 60s 超时） */
   inheritFailureReason(data: InheritFailureReasonRequest): Promise<InheritFailureReasonResponse> {
     return request.post("/history/inherit-failure-reason", data, { timeout: 60000 }) as any;
+  },
+  /** 一键分析：整批未分析失败/异常标记为 bug（锚点解析批次） */
+  oneClickAnalyze(data: OneClickAnalyzeRequest): Promise<OneClickAnalyzeResponse> {
+    return request.post("/history/one-click-analyze", data, { timeout: 60000 }) as any;
   },
 };
 

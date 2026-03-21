@@ -38,6 +38,7 @@ from backend.schemas.inherit_failure_reason import (
     InheritSourceOptionsResponse,
     InheritSourceRecordsResponse,
 )
+from backend.schemas.one_click_analyze import OneClickAnalyzeRequest, OneClickAnalyzeResponse
 # list_history, get_history_options: Service 层的查询函数
 from backend.services.history_service import get_history_options, list_history
 from backend.services.failure_process_service import get_failure_process_options, process_failure  # 失败标注 Service
@@ -47,6 +48,7 @@ from backend.services.inherit_failure_reason_service import (
     get_inherit_source_records,
     inherit_failure_reason,
 )
+from backend.services.one_click_analyze_service import one_click_analyze
 
 # 创建一个路由器实例:
 # - prefix="/history": 这个路由器下的所有端点都自动加上 /history 前缀
@@ -124,6 +126,17 @@ async def post_inherit_failure_reason(
     """执行失败原因继承，支持批次维度和用例维度。"""
     operator_employee_id = payload.get("sub", "")
     return await inherit_failure_reason(db, req, operator_employee_id)
+
+
+@router.post("/one-click-analyze", response_model=OneClickAnalyzeResponse)
+async def post_one_click_analyze(
+    req: OneClickAnalyzeRequest,
+    db: AsyncSession = Depends(get_db),
+    payload: dict = Depends(get_current_user),
+):
+    """一键分析：整批未分析失败/异常用例标记为 bug，跟踪人为用例开发责任人（姓名+工号）。"""
+    analyzer_employee_id = payload.get("sub", "")
+    return await one_click_analyze(db, req, analyzer_employee_id)
 
 
 # @router.get("") 定义一个 GET 请求的端点

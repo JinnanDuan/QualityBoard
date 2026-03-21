@@ -15,9 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.pipeline_failure_reason import PipelineFailureReason
 from backend.models.pipeline_history import PipelineHistory
-from backend.models.ums_email import UmsEmail
-from backend.models.ums_module_owner import UmsModuleOwner
 from backend.schemas.history import HistoryFilterOptions, HistoryQuery
+from backend.services.case_dev_owner_helpers import (
+    build_module_to_case_dev_owner_display,
+    case_dev_owner_display_for_row,
+)
 
 ph = PipelineHistory
 pfr = PipelineFailureReason
@@ -26,22 +28,6 @@ ALLOWED_SORT_FIELDS = {
     "start_time", "subtask", "case_name", "main_module", "case_result",
     "case_level", "analyzed", "platform", "code_branch", "created_at",
 }
-
-
-def _format_case_dev_owner_display(
-    name: Optional[str],
-    employee_id: Optional[str],
-) -> Optional[str]:
-    """用例开发责任人展示：姓名 + 空格 + 工号（姓名优先用 for_reference，可来自 ums_email.name）。"""
-    n = (name or "").strip()
-    eid = (employee_id or "").strip()
-    if n and eid:
-        return f"{n} {eid}"
-    if eid:
-        return eid
-    if n:
-        return n
-    return None
 
 
 async def list_history(
@@ -141,46 +127,7 @@ async def list_history(
 
     # ===== 第五步：按 main_module 批量查 ums_module_owner，必要时查 ums_email 补姓名 =====
     modules = {r.main_module.strip() for r in rows if r.main_module and r.main_module.strip()}
-    umo_by_module: Dict[str, UmsModuleOwner] = {}
-    if modules:
-        umo_stmt = select(UmsModuleOwner).where(UmsModuleOwner.module.in_(modules))
-        umo_result = await db.execute(umo_stmt)
-        for umo in umo_result.scalars().all():
-            umo_by_module[umo.module] = umo
-
-    need_email_ids: List[str] = []
-    for m in modules:
-        umo = umo_by_module.get(m)
-        if not umo:
-            continue
-        ref = (umo.for_reference or "").strip()
-        if not ref:
-            oid = (umo.owner or "").strip()
-            if oid:
-                need_email_ids.append(oid)
-    email_name_by_id: Dict[str, str] = {}
-    if need_email_ids:
-        uniq_ids = list(dict.fromkeys(need_email_ids))
-        em_stmt = select(UmsEmail.employee_id, UmsEmail.name).where(
-            UmsEmail.employee_id.in_(uniq_ids)
-        )
-        em_result = await db.execute(em_stmt)
-        for eid, ename in em_result.all():
-            if eid:
-                email_name_by_id[str(eid)] = (ename or "").strip()
-
-    def _case_owner_display(row: PipelineHistory) -> Optional[str]:
-        mm = (row.main_module or "").strip()
-        if not mm:
-            return None
-        umo = umo_by_module.get(mm)
-        if not umo:
-            return None
-        name = (umo.for_reference or "").strip()
-        if not name:
-            oid = (umo.owner or "").strip()
-            name = email_name_by_id.get(oid, "") if oid else ""
-        return _format_case_dev_owner_display(name or None, umo.owner)
+    module_to_display = await build_module_to_case_dev_owner_display(db, modules)
 
     # ===== 第六步：根据当前页结果批量查 pipeline_failure_reason，拼装 failure_owner、failed_type、reason、failure_analyzer、分析时间 =====
     keys = list({(r.case_name, r.start_time, r.platform) for r in rows})
@@ -222,7 +169,9 @@ async def list_history(
         fo, ft, reason, fa, analyzed_at = pfr_lookup[
             (row.case_name, row.start_time, row.platform)
         ]
-        items.append((row, fo, ft, reason, fa, analyzed_at, _case_owner_display(row)))
+        items.append(
+            (row, fo, ft, reason, fa, analyzed_at, case_dev_owner_display_for_row(row, module_to_display))
+        )
     return items, total
 
 

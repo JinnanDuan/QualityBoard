@@ -171,6 +171,7 @@ export default function HistoryPage() {
   const [inheritForm] = Form.useForm();
   const [inheritModalVisible, setInheritModalVisible] = useState(false);
   const [inheritSubmitLoading, setInheritSubmitLoading] = useState(false);
+  const [oneClickLoading, setOneClickLoading] = useState(false);
   const [inheritBatchOptions, setInheritBatchOptions] = useState<string[]>([]);
   const [inheritBatchOptionsLoading, setInheritBatchOptionsLoading] = useState(false);
   const [inheritSourceOptions, setInheritSourceOptions] = useState<InheritSourceOptions>({
@@ -523,6 +524,60 @@ export default function HistoryPage() {
   const handleInheritModalCancel = () => {
     setInheritModalVisible(false);
     inheritForm.resetFields();
+  };
+
+  /** 一键分析：取勾选记录中第一条 failed/error 作为锚点，整批未分析失败/异常标记 bug */
+  const handleOneClickAnalyze = () => {
+    if (!processBtnEnabled) return;
+    let anchorId: number | undefined;
+    for (const key of selectedRowKeys) {
+      const row = data.find((r) => r.id === Number(key));
+      if (
+        row &&
+        (row.case_result === "failed" || row.case_result === "error")
+      ) {
+        anchorId = row.id;
+        break;
+      }
+    }
+    if (anchorId === undefined) return;
+
+    const anchorRow = data.find((r) => r.id === anchorId);
+    const batchLabel = anchorRow?.start_time ?? "—";
+
+    Modal.confirm({
+      title: "一键分析",
+      content: `将对批次「${batchLabel}」下所有未分析的失败/异常用例标记为失败类型 bug，跟踪人为各用例开发责任人。是否继续？`,
+      okText: "确定",
+      cancelText: "取消",
+      onOk: async () => {
+        setOneClickLoading(true);
+        try {
+          const res = await historyApi.oneClickAnalyze({ anchor_history_id: anchorId! });
+          message.success(res.message || `一键分析完成，成功 ${res.applied_count} 条`);
+          setSelectedRowKeys([]);
+          const params = paramsFromUrl();
+          await fetchData({
+            ...params,
+            page: params.page ?? 1,
+            page_size: params.page_size ?? 20,
+          });
+        } catch (e: unknown) {
+          const err = e as { response?: { data?: { detail?: string } }; message?: string };
+          const msg = err?.response?.data?.detail || err?.message || "一键分析失败";
+          if (typeof msg === "string") {
+            message.error(msg);
+          } else if (Array.isArray(msg)) {
+            const parts = (msg as Array<{ msg?: string }>).map((m) => m.msg || "");
+            message.error(parts.join("; "));
+          } else {
+            message.error("一键分析失败");
+          }
+        } finally {
+          setOneClickLoading(false);
+        }
+      },
+    });
   };
 
   const fetchInheritSourceOptions = async (caseName?: string, platform?: string) => {
@@ -1036,6 +1091,15 @@ export default function HistoryPage() {
               disabled={!processBtnEnabled || loading}
             >
               继承失败原因
+            </Button>
+          </Col>
+          <Col>
+            <Button
+              loading={oneClickLoading}
+              onClick={handleOneClickAnalyze}
+              disabled={!processBtnEnabled || loading || oneClickLoading}
+            >
+              一键分析
             </Button>
           </Col>
         </Row>
