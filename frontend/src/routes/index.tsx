@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import DashboardPage from "../pages/dashboard/DashboardPage";
 import OverviewPage from "../pages/overview/OverviewPage";
 import HistoryPage from "../pages/history/HistoryPage";
+import CaseExecutionsHistoryPage from "../pages/history/CaseExecutionsHistoryPage";
 import CasesPage from "../pages/cases/CasesPage";
 import ReportPage from "../pages/report/ReportPage";
 import UsersPage from "../pages/admin/UsersPage";
@@ -47,6 +48,7 @@ export default function AppRoutes() {
         { index: true, element: <DashboardPage /> },
         { path: "overview", element: <OverviewPage /> },
         { path: "history", element: <HistoryPage /> },
+        { path: "history/case-executions", element: <CaseExecutionsHistoryPage /> },
         {
           path: "cases",
           element: (

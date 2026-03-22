@@ -132,7 +132,11 @@ export default function MainLayout() {
           <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 72px - 48px)" }}>
             <Menu
               theme="dark"
-              selectedKeys={[location.pathname]}
+              selectedKeys={[
+                location.pathname.startsWith("/history/case-executions")
+                  ? "/history"
+                  : location.pathname,
+              ]}
               defaultOpenKeys={["admin"]}
               mode="inline"
               items={menuItems}

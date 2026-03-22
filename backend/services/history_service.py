@@ -30,6 +30,16 @@ ALLOWED_SORT_FIELDS = {
 }
 
 
+def _has_non_empty_case_name_filter(query: HistoryQuery) -> bool:
+    """Spec 08 §3.1.1：已选用例名且至少一项非空时，不注入默认 N 批。"""
+    if not query.case_name:
+        return False
+    for s in query.case_name:
+        if s is not None and str(s).strip():
+            return True
+    return False
+
+
 async def list_history(
     db: AsyncSession, query: HistoryQuery
 ) -> Tuple[
@@ -48,13 +58,13 @@ async def list_history(
 ]:
     """
     按 Spec 07：条件合并 + EXISTS 跨表筛选，禁止 JOIN、禁止结果集驱动。
-    按 Spec 08：未选 start_time 时注入默认最近 30 批，缩小扫描范围。
+    按 Spec 08：未选 start_time 时注入默认最近 30 批；若已选非空 case_name 则不注入（§3.1.1，全时间范围）。
     1. 仅查 pipeline_history 主表，跨表条件通过 EXISTS 子查询
     2. 主查询完成后，根据当前页 (case_name, start_time, platform) 批量查 pfr 拼装 failure_owner、failed_type
     3. 根据当前页 main_module 批量查 ums_module_owner（及必要时 ums_email），拼装用例开发责任人展示串
     """
-    # ===== 第零步：未选 start_time 时注入默认最近 30 批（Spec 08）=====
-    if not query.start_time:
+    # ===== 第零步：未选 start_time 时注入默认最近 30 批（Spec 08）；§3.1.1 例外见 _has_non_empty_case_name_filter
+    if not query.start_time and not _has_non_empty_case_name_filter(query):
         default_batches_stmt = (
             select(ph.start_time)
             .where(ph.start_time.is_not(None))

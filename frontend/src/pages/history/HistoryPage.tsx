@@ -34,7 +34,17 @@ import {
   type InheritSourceRecordItem,
 } from "../../services";
 
-const { Text } = Typography;
+const { Text, Title, Paragraph } = Typography;
+
+/** 钻取页链接（spec/12），新标签打开 */
+function caseExecutionsDrilldownHref(record: HistoryItem): string {
+  const qs = new URLSearchParams();
+  if (record.case_name) qs.append("case_name", record.case_name);
+  if (record.platform) qs.append("platform", record.platform);
+  if (record.code_branch) qs.append("code_branch", record.code_branch);
+  qs.set("page", "1");
+  return `/history/case-executions?${qs.toString()}`;
+}
 
 function UrlLink({
   url,
@@ -149,7 +159,12 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   action: 80,
 };
 
-export default function HistoryPage() {
+export type HistoryPageProps = {
+  /** 用例执行历史钻取（spec/12），URL 为 /history/case-executions */
+  drilldown?: boolean;
+};
+
+export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<HistoryItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -183,6 +198,14 @@ export default function HistoryPage() {
   const [inheritSourceRecords, setInheritSourceRecords] = useState<InheritSourceRecordItem[]>([]);
   const [inheritSourceRecordsLoading, setInheritSourceRecordsLoading] = useState(false);
   const inheritMode = Form.useWatch("inherit_mode", inheritForm);
+
+  /** 钻取页首次有效 URL 快照，用于「筛选重置」恢复用例名/平台/分支 */
+  const drilldownAnchorRef = useRef<{
+    case_name?: string[];
+    platform?: string[];
+    code_branch?: string[];
+  } | null>(null);
+  const drilldownInvalidWarnedRef = useRef(false);
 
   const paramsFromUrl = (): HistoryQueryParams => {
     const getList = (key: string) => {
@@ -283,6 +306,21 @@ export default function HistoryPage() {
   }, []);
 
   useEffect(() => {
+    if (!drilldown) {
+      drilldownInvalidWarnedRef.current = false;
+      return;
+    }
+    const params = paramsFromUrl();
+    const hasCase = params.case_name?.some((n) => n && String(n).trim());
+    if (hasCase) {
+      drilldownInvalidWarnedRef.current = false;
+    } else if (!drilldownInvalidWarnedRef.current) {
+      drilldownInvalidWarnedRef.current = true;
+      message.error("链接无效：缺少用例名");
+    }
+  }, [drilldown, searchParams]);
+
+  useEffect(() => {
     const params = paramsFromUrl();
     form.setFieldsValue({
       start_time: params.start_time,
@@ -302,12 +340,29 @@ export default function HistoryPage() {
 
   useEffect(() => {
     const params = paramsFromUrl();
+    if (drilldown) {
+      const hasCase = params.case_name?.some((n) => n && String(n).trim());
+      if (!hasCase) {
+        setData([]);
+        setTotal(0);
+        return;
+      }
+      if (drilldownAnchorRef.current === null) {
+        drilldownAnchorRef.current = {
+          case_name: params.case_name,
+          platform: params.platform,
+          code_branch: params.code_branch,
+        };
+      }
+    } else {
+      drilldownAnchorRef.current = null;
+    }
     fetchData({
       ...params,
       page: params.page ?? 1,
       page_size: params.page_size ?? 20,
     });
-  }, [searchParams]);
+  }, [searchParams, drilldown]);
 
   const handleFilterChange = () => {
     const values = form.getFieldsValue();
@@ -331,7 +386,17 @@ export default function HistoryPage() {
   };
 
   const handleReset = () => {
-    syncParamsToUrl({ page: 1, page_size: pagination.pageSize });
+    if (drilldown && drilldownAnchorRef.current) {
+      syncParamsToUrl({
+        page: 1,
+        page_size: pagination.pageSize,
+        case_name: drilldownAnchorRef.current.case_name,
+        platform: drilldownAnchorRef.current.platform,
+        code_branch: drilldownAnchorRef.current.code_branch,
+      });
+    } else {
+      syncParamsToUrl({ page: 1, page_size: pagination.pageSize });
+    }
     setPagination((p) => ({ ...p, current: 1 }));
   };
 
@@ -688,7 +753,25 @@ export default function HistoryPage() {
       sorter: true,
       sortOrder: sortOrderFor("case_name"),
       ellipsis: { showTitle: false },
-      render: (val: string | null) => ellipsisCell(val),
+      render: (val: string | null, record: HistoryItem) => {
+        if (!val) return "—";
+        if (drilldown) {
+          return ellipsisCell(val);
+        }
+        return (
+          <EllipsisTooltip title={val} placement="topLeft">
+            <a
+              href={caseExecutionsDrilldownHref({ ...record, case_name: val })}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="在新标签页中查看该用例的全历史执行记录"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {val}
+            </a>
+          </EllipsisTooltip>
+        );
+      },
       onHeaderCell: (col) => ({
         width: colWidths.case_name,
         onResize: handleResize("case_name"),
@@ -868,8 +951,28 @@ export default function HistoryPage() {
 
   const totalWidth = Object.values(colWidths).reduce((a, b) => a + b, 0);
 
+  const drilldownCaseTitle = (() => {
+    if (!drilldown) return "";
+    const p = paramsFromUrl();
+    const names = p.case_name?.filter((n) => n && String(n).trim()) ?? [];
+    return names.length ? names.join("、") : "";
+  })();
+
   return (
     <div style={{ padding: "0 16px 24px" }} className="history-table">
+      {drilldown && (
+        <div style={{ marginBottom: 16 }}>
+          <Title level={4} style={{ margin: 0 }}>
+            用例执行历史
+          </Title>
+          {drilldownCaseTitle ? (
+            <Text type="secondary">用例名：{drilldownCaseTitle}</Text>
+          ) : null}
+          <Paragraph type="secondary" style={{ margin: "8px 0 0", fontSize: 12, marginBottom: 0 }}>
+            未选批次时查询该用例在全时间范围内的记录（分页展示）。
+          </Paragraph>
+        </div>
+      )}
       <Form form={form} style={{ marginBottom: 16 }} disabled={loading}>
         <Row gutter={16}>
           <Col span={4}>
@@ -877,7 +980,11 @@ export default function HistoryPage() {
               <Select
                 mode="multiple"
                 allowClear
-                placeholder="不选则默认最近30批"
+                placeholder={
+                  drilldown
+                    ? "未选批次则查询全时间范围"
+                    : "不选则默认最近30批"
+                }
                 maxTagCount="responsive"
                 loading={optionsLoading}
                 showSearch
