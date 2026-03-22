@@ -159,6 +159,9 @@ const DEFAULT_WIDTHS: Record<string, number> = {
   action: 80,
 };
 
+/** 从表格区域量得的高度中，为表头与底部分页（含每页条数）预留的像素，用于推算 `scroll.y` */
+const HISTORY_TABLE_SCROLL_RESERVE_PX = 118;
+
 export type HistoryPageProps = {
   /** 用例执行历史钻取（spec/12），URL 为 /history/case-executions */
   drilldown?: boolean;
@@ -198,6 +201,10 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const [inheritSourceRecords, setInheritSourceRecords] = useState<InheritSourceRecordItem[]>([]);
   const [inheritSourceRecordsLoading, setInheritSourceRecordsLoading] = useState(false);
   const inheritMode = Form.useWatch("inherit_mode", inheritForm);
+
+  /** 中间表格区高度（视口剩余），供 Ant Design Table `scroll.y` 使用 */
+  const tableAreaRef = useRef<HTMLDivElement>(null);
+  const [tableScrollY, setTableScrollY] = useState(300);
 
   /** 钻取页首次有效 URL 快照，用于「筛选重置」恢复用例名/平台/分支 */
   const drilldownAnchorRef = useRef<{
@@ -363,6 +370,19 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       page_size: params.page_size ?? 20,
     });
   }, [searchParams, drilldown]);
+
+  useEffect(() => {
+    const el = tableAreaRef.current;
+    if (!el) return;
+    const update = () => {
+      const h = el.getBoundingClientRect().height;
+      setTableScrollY(Math.max(120, Math.floor(h - HISTORY_TABLE_SCROLL_RESERVE_PX)));
+    };
+    update();
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const handleFilterChange = () => {
     const values = form.getFieldsValue();
@@ -959,7 +979,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   })();
 
   return (
-    <div style={{ padding: "0 16px 24px" }} className="history-table">
+    <div style={{ padding: "0 16px 24px" }} className="history-table history-page-layout">
       {drilldown && (
         <div style={{ marginBottom: 16 }}>
           <Title level={4} style={{ margin: 0 }}>
@@ -1212,36 +1232,38 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
         </Row>
       </Form>
 
-      <Table<HistoryItem>
-        rowKey="id"
-        columns={columns}
-        dataSource={data}
-        loading={loading}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys),
-          getCheckboxProps: (record) => ({
-            disabled: record.case_result !== "failed" && record.case_result !== "error",  // failed 与 error 行可勾选
-          }),
-        }}
-        components={{
-          header: {
-            cell: ResizableTitle,
-          },
-        }}
-        pagination={{
-          current: pagination.current,
-          pageSize: pagination.pageSize,
-          total,
-          showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
-          disabled: loading,
-        }}
-        onChange={handleTableChange}
-        onRow={() => ({})}
-        scroll={{ x: totalWidth }}
-        size="small"
-      />
+      <div ref={tableAreaRef} className="history-page-table-area">
+        <Table<HistoryItem>
+          rowKey="id"
+          columns={columns}
+          dataSource={data}
+          loading={loading}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+            getCheckboxProps: (record) => ({
+              disabled: record.case_result !== "failed" && record.case_result !== "error",  // failed 与 error 行可勾选
+            }),
+          }}
+          components={{
+            header: {
+              cell: ResizableTitle,
+            },
+          }}
+          pagination={{
+            current: pagination.current,
+            pageSize: pagination.pageSize,
+            total,
+            showSizeChanger: true,
+            showTotal: (t) => `共 ${t} 条`,
+            disabled: loading,
+          }}
+          onChange={handleTableChange}
+          onRow={() => ({})}
+          scroll={{ x: totalWidth, y: tableScrollY }}
+          size="small"
+        />
+      </div>
 
       <Modal
         title="失败记录标注"

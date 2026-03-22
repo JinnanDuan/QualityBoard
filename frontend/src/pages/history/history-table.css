@@ -40,3 +40,18 @@
 .history-table .ant-table-tbody > tr:hover {
   background: #f5f7fa !important;
 }
+
+/* 详细执行历史：占满主内容区剩余高度，仅表体纵向滚动 */
+.history-page-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+}
+.history-page-layout .history-page-table-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}

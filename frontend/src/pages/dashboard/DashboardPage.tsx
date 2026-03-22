@@ -136,7 +136,14 @@ export default function DashboardPage() {
   const hasLatestBatch = latestBatch && Object.keys(latestBatch).length > 0;
 
   return (
-    <div style={{ padding: "8px 0" }}>
+    <div
+      style={{
+        flex: 1,
+        minHeight: 0,
+        overflow: "auto",
+        padding: "8px 0",
+      }}
+    >
       <h2 style={{ marginBottom: 12 }}>首页大盘</h2>
 
       {/* 最新批次状态卡片 */}
