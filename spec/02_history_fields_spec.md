@@ -49,7 +49,7 @@
 | log_url | 可点击链接（新窗口打开），无值则显示「暂无」 |
 | pipeline_url | 可点击链接（新窗口打开），无值则显示「暂无」 |
 
-**说明：** API 响应字段 `owner` 在 Drawer 基本信息区展示为「用例开发责任人」，值为按 `main_module = ums_module_owner.module` 解析后的「姓名+工号」展示串。`owner_history` 本次实现不考虑。
+**说明：** API 响应字段 `owner` 在 Drawer 基本信息区展示为「用例开发责任人」，值为按 `main_module` 与 `ums_module_owner.module` 关联解析后的「姓名+工号」展示串；**模块匹配按小写等价**（`LOWER(main_module)` 与 `LOWER(module)`），避免流水线写入大小写不一致导致无负责人。`owner_history` 本次实现不考虑。
 
 ---
 

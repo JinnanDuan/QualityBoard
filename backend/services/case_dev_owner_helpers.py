@@ -5,7 +5,7 @@
 
 from typing import Dict, Optional, Set
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.pipeline_history import PipelineHistory
@@ -34,20 +34,30 @@ async def build_module_to_case_dev_owner_display(
 ) -> Dict[str, Optional[str]]:
     """
     批量解析 main_module（与 ums_module_owner.module 对应）→ 展示串。
+    匹配规则：**按小写比较**（`LOWER(main_module)` = `LOWER(ums_module_owner.module)`），避免流水线写入大小写不一致导致查不到负责人。
     无匹配或无法解析时该 module 对应值为 None。
     """
     if not modules:
         return {}
 
-    umo_stmt = select(UmsModuleOwner).where(UmsModuleOwner.module.in_(modules))
+    modules_lower = {m.lower() for m in modules if m}
+    if not modules_lower:
+        return {}
+
+    umo_stmt = select(UmsModuleOwner).where(
+        func.lower(UmsModuleOwner.module).in_(modules_lower)
+    )
     umo_result = await db.execute(umo_stmt)
-    umo_by_module: Dict[str, UmsModuleOwner] = {}
+    # 小写 module → ORM（若库中仅一行 LOG，则仅 'log' 一条键）
+    umo_by_lower: Dict[str, UmsModuleOwner] = {}
     for umo in umo_result.scalars().all():
-        umo_by_module[umo.module] = umo
+        key = (umo.module or "").lower()
+        if key and key not in umo_by_lower:
+            umo_by_lower[key] = umo
 
     need_email_ids: list = []
     for m in modules:
-        umo = umo_by_module.get(m)
+        umo = umo_by_lower.get(m.lower()) if m else None
         if not umo:
             continue
         ref = (umo.for_reference or "").strip()
@@ -69,7 +79,7 @@ async def build_module_to_case_dev_owner_display(
 
     out: Dict[str, Optional[str]] = {}
     for m in modules:
-        umo = umo_by_module.get(m)
+        umo = umo_by_lower.get(m.lower()) if m else None
         if not umo:
             out[m] = None
             continue

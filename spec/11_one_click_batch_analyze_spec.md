@@ -99,7 +99,7 @@
 
 ### 5.1 用例开发责任人（跟踪人）解析
 
-- 与列表接口中「用例开发责任人」规则一致：`**main_module = ums_module_owner.module`**。
+- 与列表接口中「用例开发责任人」规则一致：按 **`LOWER(main_module)` 与 `LOWER(ums_module_owner.module)`** 匹配（小写等价），再取 `for_reference` / `owner` 等字段。
 - **姓名**：优先 `ums_module_owner.for_reference`；若为空则按 `ums_module_owner.owner`（工号）查 `ums_email.name`。
 - **工号**：`ums_module_owner.owner`。
 - **写入 `pipeline_failure_reason.owner` 的格式**：`**{姓名} {工号}`**（姓名与工号之间 **一个半角空格**）。若仅有工号或仅有姓名（极端情况），则与现有 `_format_case_dev_owner_display` 语义一致：能拼则拼，否则仅有的一侧写入。
