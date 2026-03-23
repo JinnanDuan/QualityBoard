@@ -745,12 +745,41 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
     setReportText("");
   };
 
+  /** 非 HTTPS 或浏览器限制时 clipboard API 常失败，回退到 execCommand */
   const handleCopyReport = async () => {
     if (!reportText) return;
     try {
-      await navigator.clipboard.writeText(reportText);
-      message.success("已复制到剪贴板");
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(reportText);
+        message.success("已复制到剪贴板");
+        return;
+      }
     } catch {
+      /* 走下方回退 */
+    }
+    const ta = document.createElement("textarea");
+    ta.value = reportText;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "0";
+    ta.style.left = "0";
+    ta.style.width = "1px";
+    ta.style.height = "1px";
+    ta.style.opacity = "0";
+    ta.style.pointerEvents = "none";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, reportText.length);
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } finally {
+      document.body.removeChild(ta);
+    }
+    if (ok) {
+      message.success("已复制到剪贴板");
+    } else {
       message.error("复制失败，请手动选择文本复制");
     }
   };
@@ -1350,6 +1379,9 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
           rowSelection={{
             selectedRowKeys,
             onChange: (keys) => setSelectedRowKeys(keys),
+            getCheckboxProps: (record) => ({
+              disabled: record.case_result !== "failed" && record.case_result !== "error",
+            }),
           }}
           components={{
             header: {
