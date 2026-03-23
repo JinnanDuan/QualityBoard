@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 ph = PipelineHistory
 pfr = PipelineFailureReason
-ALLOWED_RESULTS = ("failed", "error")
+ALLOWED_RESULTS = ("failed", "error")  # 一键分析仅处理失败/异常；skip、passed 等不参与
 PFR_OWNER_MAX_LEN = 100
 _HISTORY_UPDATE_CHUNK = 500
 _LOCK_MAX_LEN = 64

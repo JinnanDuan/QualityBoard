@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 ph = PipelineHistory
 pfr = PipelineFailureReason
-ALLOWED_RESULTS = ("failed", "error")
+ALLOWED_RESULTS = ("failed", "error")  # 继承仅处理失败/异常；skip、passed 等不参与
 
 # 批量 INSERT pfr 每批行数（避免单条 SQL 过大）
 _PFR_INSERT_CHUNK = 200

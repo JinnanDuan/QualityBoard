@@ -216,7 +216,8 @@ async def get_history_options(db: AsyncSession) -> HistoryFilterOptions:
         subtask=subtask,
         case_name=case_name,
         main_module=main_module,
-        case_result=["passed", "failed", "error"],
+        # skip：跳过未执行；与 passed 一样可筛，不参与勾选/标注/继承/一键分析（见 failure_process、inherit、one_click）
+        case_result=["passed", "failed", "error", "skip"],
         case_level=case_level,
         platform=platform,
         code_branch=code_branch,

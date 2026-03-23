@@ -819,7 +819,16 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       ellipsis: { showTitle: false },
       render: (val: string | null) => {
         if (!val) return "—";
-        const color = val === "passed" ? "green" : val === "failed" ? "red" : val === "error" ? "orange" : "default";
+        const color =
+          val === "passed"
+            ? "green"
+            : val === "failed"
+              ? "red"
+              : val === "error"
+                ? "orange"
+                : val === "skip"
+                  ? "geekblue"
+                  : "default";
         return (
           <EllipsisTooltip title={val} placement="topLeft">
             <Tag color={color}>{val}</Tag>
@@ -1083,6 +1092,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
                   { label: "passed", value: "passed" },
                   { label: "failed", value: "failed" },
                   { label: "error", value: "error" },
+                  { label: "skip", value: "skip" },
                 ]}
               />
             </Form.Item>
@@ -1242,7 +1252,8 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
             selectedRowKeys,
             onChange: (keys) => setSelectedRowKeys(keys),
             getCheckboxProps: (record) => ({
-              disabled: record.case_result !== "failed" && record.case_result !== "error",  // failed 与 error 行可勾选
+              // 仅 failed / error 可勾选；passed、skip 等不可勾选
+              disabled: record.case_result !== "failed" && record.case_result !== "error",
             }),
           }}
           components={{

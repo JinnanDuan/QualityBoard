@@ -12,7 +12,7 @@
 | subtask | 分组 | subtask | 100 | 纯文本 |
 | case_name | 用例名 | case_name | 200 | 纯文本，ellipsis 省略 |
 | main_module | 主模块 | main_module | 100 | 纯文本 |
-| case_result | 执行结果 | case_result | 100 | Tag 着色：passed=绿色，failed=红色，error=橙色，其他=default |
+| case_result | 执行结果 | case_result | 100 | Tag 着色：passed=绿色，failed=红色，error=橙色，skip=geekblue（跳过未执行，与前三者区分），其他=default |
 | case_level | 用例级别 | case_level | 90 | 纯文本（P0/P1/P2） |
 | analyzed | 是否已分析 | analyzed | 100 | Tag：1=已分析（蓝色），0=未分析（灰色） |
 | platform | 平台 | platform | 90 | 纯文本 |
@@ -61,7 +61,7 @@
 | subtask | 下拉单选 | 否 | 空 | 选项从数据去重或字典接口获取 |
 | case_name | 输入框模糊搜索 | 否 | 空 | 后端需支持 `LIKE %keyword%` |
 | main_module | 下拉单选 | 否 | 空 | 选项从数据去重或 `ums_module_owner` 获取 |
-| case_result | 下拉单选 | 否 | 空 | 选项：passed、failed、error |
+| case_result | 下拉单选 | 否 | 空 | 选项：passed、failed、error、skip（skip 与 passed 均可筛；勾选/标注/继承/一键分析仅 failed、error，见业务规则） |
 | case_level | 下拉单选 | 否 | 空 | 选项：P0、P1、P2 等 |
 | analyzed | 下拉单选 | 否 | 空 | 选项：全部、已分析、未分析（对应 空/1/0） |
 | platform | 下拉单选 | 否 | 空 | 选项从数据去重（如 Android、iOS、Web） |
