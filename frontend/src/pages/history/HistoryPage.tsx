@@ -15,6 +15,7 @@ import {
   Row,
   Col,
   Select,
+  Spin,
   Table,
   Tag,
   Tooltip,
@@ -32,9 +33,44 @@ import {
   type InheritFailureReasonRequest,
   type InheritSourceOptions,
   type InheritSourceRecordItem,
+  type BatchReportResponse,
 } from "../../services";
 
 const { Text, Title, Paragraph } = Typography;
+
+/** 轮次群通告正文（与产品约定模板一致） */
+function buildRollingReportMarkdown(data: BatchReportResponse): string {
+  const lines: string[] = [];
+  lines.push("【rolling线看护进展通告】");
+  lines.push(`batch：${data.start_time}`);
+  lines.push(
+    `用例总数：${data.total}，成功：${data.passed}，失败：${data.failed}，跳过：${data.skip}`,
+  );
+  lines.push("");
+  lines.push("怀疑修改引入问题：");
+  lines.push("");
+  if (!data.platforms?.length) {
+    lines.push("（本轮该批次无失败原因为 bug 的用例）");
+  } else {
+    for (const plat of data.platforms) {
+      lines.push(`${plat.platform}：`);
+      for (const o of plat.owners) {
+        const namePart = o.employee_name ? `${o.employee_name} ` : "";
+        const modParts = o.modules.map((m) => `${m.main_module}（${m.count}）`).join("，");
+        lines.push(`${namePart}${o.employee_id} 【${o.case_count}条】：${modParts}`);
+      }
+      lines.push("");
+    }
+  }
+  const board = new URLSearchParams();
+  board.append("start_time", data.start_time);
+  board.append("failed_type", "bug");
+  const url = `${window.location.origin}/history?${board.toString()}`;
+  lines.push(`详见：${url}`);
+  lines.push("");
+  lines.push("——————————————");
+  return lines.join("\n");
+}
 
 /** 钻取页链接（spec/12），新标签打开 */
 function caseExecutionsDrilldownHref(record: HistoryItem): string {
@@ -190,6 +226,9 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const [inheritModalVisible, setInheritModalVisible] = useState(false);
   const [inheritSubmitLoading, setInheritSubmitLoading] = useState(false);
   const [oneClickLoading, setOneClickLoading] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportText, setReportText] = useState("");
   const [inheritBatchOptions, setInheritBatchOptions] = useState<string[]>([]);
   const [inheritBatchOptionsLoading, setInheritBatchOptionsLoading] = useState(false);
   const [inheritSourceOptions, setInheritSourceOptions] = useState<InheritSourceOptions>({
@@ -460,6 +499,8 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
             const first = selectedRows[0]?.start_time;
             return selectedRows.every((r) => r.start_time === first) ? first ?? undefined : undefined;
           })();
+  /** 勾选至少一行且同属一轮次，用于一键生成通报 */
+  const reportBtnEnabled = selectedRowKeys.length > 0 && currentBatch != null;
   const showBatchDimension = currentBatch != null;
 
   const openProcessModal = async () => {
@@ -468,8 +509,10 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
     try {
       const opts = await historyApi.failureProcessOptions();
       setFailureProcessOptions(opts);
-      const firstSelected = selectedRows[0];
-      const defaultModule = firstSelected?.main_module ?? undefined;  // 方案 B：取第一条的 main_module
+      const firstFailed = selectedRows.find(
+        (r) => r.case_result === "failed" || r.case_result === "error"
+      );
+      const defaultModule = firstFailed?.main_module ?? undefined;
       processForm.setFieldsValue({
         failed_type: undefined,
         owner: undefined,
@@ -485,10 +528,17 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const handleProcessModalOk = async () => {
     try {
       const values = await processForm.validateFields();
+      const failedOnlyIds = selectedRows
+        .filter((r) => r.case_result === "failed" || r.case_result === "error")
+        .map((r) => r.id);
+      if (!failedOnlyIds.length) {
+        message.warning("请至少勾选一条失败或异常记录");
+        return;
+      }
       const failedType = values.failed_type as string;
       const isBug = failedType?.trim().toLowerCase() === "bug";  // bug 匹配：忽略首尾空格、大小写
       const payload: FailureProcessRequest = {
-        history_ids: selectedRowKeys.map(Number),
+        history_ids: failedOnlyIds.map(Number),
         failed_type: failedType,
         owner: values.owner,
         reason: values.reason?.trim() ?? "",
@@ -575,8 +625,15 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
         payload.source_batch = values.source_batch;
         payload.target_batch = currentBatch!;
       } else {
+        const failedOnlyIds = selectedRows
+          .filter((r) => r.case_result === "failed" || r.case_result === "error")
+          .map((r) => r.id);
+        if (!failedOnlyIds.length) {
+          message.warning("用例维度继承需至少勾选一条失败或异常记录");
+          return;
+        }
         payload.source_pfr_id = values.source_pfr_id;
-        payload.history_ids = selectedRowKeys.map(Number);
+        payload.history_ids = failedOnlyIds.map(Number);
       }
       setInheritSubmitLoading(true);
       const res = await historyApi.inheritFailureReason(payload);
@@ -663,6 +720,39 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
         }
       },
     });
+  };
+
+  /** 一键生成通报：按勾选行所属批次拉取汇总并展示可复制文案 */
+  const handleOpenReport = async () => {
+    if (!reportBtnEnabled || !currentBatch) return;
+    setReportModalVisible(true);
+    setReportText("");
+    setReportLoading(true);
+    try {
+      const data = await historyApi.batchReport(currentBatch);
+      setReportText(buildRollingReportMarkdown(data));
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } }; message?: string };
+      message.error(err?.response?.data?.detail || err?.message || "生成通报失败");
+      setReportModalVisible(false);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const handleReportModalClose = () => {
+    setReportModalVisible(false);
+    setReportText("");
+  };
+
+  const handleCopyReport = async () => {
+    if (!reportText) return;
+    try {
+      await navigator.clipboard.writeText(reportText);
+      message.success("已复制到剪贴板");
+    } catch {
+      message.error("复制失败，请手动选择文本复制");
+    }
   };
 
   const fetchInheritSourceOptions = async (caseName?: string, platform?: string) => {
@@ -1239,6 +1329,15 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
               一键分析
             </Button>
           </Col>
+          <Col>
+            <Button
+              loading={reportLoading}
+              onClick={handleOpenReport}
+              disabled={!reportBtnEnabled || loading || reportLoading}
+            >
+              一键生成通报
+            </Button>
+          </Col>
         </Row>
       </Form>
 
@@ -1251,10 +1350,6 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
           rowSelection={{
             selectedRowKeys,
             onChange: (keys) => setSelectedRowKeys(keys),
-            getCheckboxProps: (record) => ({
-              // 仅 failed / error 可勾选；passed、skip 等不可勾选
-              disabled: record.case_result !== "failed" && record.case_result !== "error",
-            }),
           }}
           components={{
             header: {
@@ -1303,8 +1398,10 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
                 );
                 processForm.setFieldValue("owner", cft?.owner ?? undefined);
               } else {
-                const firstSelected = selectedRows[0];
-                const defaultModule = firstSelected?.main_module ?? undefined;  // 方案 B
+                const firstFailed = selectedRows.find(
+                  (r) => r.case_result === "failed" || r.case_result === "error"
+                );
+                const defaultModule = firstFailed?.main_module ?? undefined;
                 processForm.setFieldValue("module", defaultModule);
                 const modItem = defaultModule
                   ? failureProcessOptions?.modules?.find((m) => m.module === defaultModule)
@@ -1387,6 +1484,37 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
             <Input.TextArea rows={4} placeholder="请输入详细原因" maxLength={2000} showCount />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="轮次通报"
+        width={640}
+        open={reportModalVisible}
+        onCancel={handleReportModalClose}
+        footer={[
+          <Button
+            key="copy"
+            type="primary"
+            onClick={handleCopyReport}
+            disabled={reportLoading || !reportText}
+          >
+            复制全文
+          </Button>,
+          <Button key="close" onClick={handleReportModalClose}>
+            关闭
+          </Button>,
+        ]}
+        destroyOnClose
+      >
+        <Spin spinning={reportLoading}>
+          <Input.TextArea
+            readOnly
+            value={reportText}
+            placeholder={reportLoading ? "正在生成通报文案…" : ""}
+            rows={18}
+            style={{ fontFamily: "monospace", fontSize: 13 }}
+          />
+        </Spin>
       </Modal>
 
       <Modal

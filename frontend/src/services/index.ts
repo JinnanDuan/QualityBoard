@@ -136,6 +136,33 @@ export interface OneClickAnalyzeResponse {
   skipped_not_eligible_count: number;
 }
 
+/** GET /history/batch-report 轮次通报汇总 */
+export interface BatchReportModuleCount {
+  main_module: string;
+  count: number;
+}
+
+export interface BatchReportOwnerGroup {
+  employee_id: string;
+  employee_name: string | null;
+  case_count: number;
+  modules: BatchReportModuleCount[];
+}
+
+export interface BatchReportPlatformGroup {
+  platform: string;
+  owners: BatchReportOwnerGroup[];
+}
+
+export interface BatchReportResponse {
+  start_time: string;
+  total: number;
+  passed: number;
+  failed: number;
+  skip: number;
+  platforms: BatchReportPlatformGroup[];
+}
+
 export interface InheritSourceOptions {
   case_names: string[];
   platforms: string[];
@@ -212,6 +239,12 @@ export const historyApi = {
   /** 一键分析：整批未分析失败/异常标记为 bug（锚点解析批次） */
   oneClickAnalyze(data: OneClickAnalyzeRequest): Promise<OneClickAnalyzeResponse> {
     return request.post("/history/one-click-analyze", data, { timeout: 60000 }) as any;
+  },
+  /** 轮次通报：按批次汇总结果分布与 bug 归因（用于复制群通告） */
+  batchReport(startTime: string): Promise<BatchReportResponse> {
+    return request.get("/history/batch-report", {
+      params: { start_time: startTime },
+    }) as any;
   },
 };
 

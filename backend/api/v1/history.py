@@ -38,6 +38,7 @@ from backend.schemas.inherit_failure_reason import (
     InheritSourceOptionsResponse,
     InheritSourceRecordsResponse,
 )
+from backend.schemas.batch_report import BatchReportResponse
 from backend.schemas.one_click_analyze import OneClickAnalyzeRequest, OneClickAnalyzeResponse
 # list_history, get_history_options: Service 层的查询函数
 from backend.services.history_service import get_history_options, list_history
@@ -48,6 +49,7 @@ from backend.services.inherit_failure_reason_service import (
     get_inherit_source_records,
     inherit_failure_reason,
 )
+from backend.services.batch_report_service import get_batch_report
 from backend.services.one_click_analyze_service import one_click_analyze
 
 # 创建一个路由器实例:
@@ -137,6 +139,16 @@ async def post_one_click_analyze(
     """一键分析：整批未分析失败/异常用例标记为 bug，跟踪人为用例开发责任人（姓名+工号）。"""
     analyzer_employee_id = payload.get("sub", "")
     return await one_click_analyze(db, req, analyzer_employee_id)
+
+
+@router.get("/batch-report", response_model=BatchReportResponse)
+async def get_batch_report_endpoint(
+    start_time: str = Query(..., description="轮次（批次），与勾选行的 start_time 一致"),
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+):
+    """轮次通报：汇总该批次用例结果分布及失败原因为 bug 的按平台/跟踪人/主模块统计。"""
+    return await get_batch_report(db, start_time)
 
 
 # @router.get("") 定义一个 GET 请求的端点
