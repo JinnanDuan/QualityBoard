@@ -1,1 +1,1 @@
-export {};
+export { getSafeRedirectPath } from "./safeRedirect";

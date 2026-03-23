@@ -23,7 +23,9 @@ request.interceptors.response.use(
       const isLoginRequest = error.config?.url?.includes("/auth/login");
       if (!isLoginRequest) {
         localStorage.removeItem("token");
-        window.location.href = "/login";
+        const path = `${window.location.pathname}${window.location.search}`;
+        const redirect = encodeURIComponent(path);
+        window.location.href = `/login?redirect=${redirect}`;
       }
     }
     return Promise.reject(error);

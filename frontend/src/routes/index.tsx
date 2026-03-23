@@ -1,4 +1,4 @@
-import { useRoutes, Navigate } from "react-router-dom";
+import { useRoutes, Navigate, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
 import MainLayout from "../layouts/MainLayout";
 import { useAuth } from "../contexts/AuthContext";
@@ -17,8 +17,10 @@ import LoginPage from "../pages/auth/LoginPage";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const token = localStorage.getItem("token");
+  const location = useLocation();
   if (!token) {
-    return <Navigate to="/login" replace />;
+    const redirect = encodeURIComponent(`${location.pathname}${location.search}`);
+    return <Navigate to={`/login?redirect=${redirect}`} replace />;
   }
   return <>{children}</>;
 }

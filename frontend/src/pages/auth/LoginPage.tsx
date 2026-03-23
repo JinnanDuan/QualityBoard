@@ -1,21 +1,27 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Form, Input, Button, Card, message, Typography } from "antd";
 import { UserOutlined, LockOutlined } from "@ant-design/icons";
 import { authApi, LoginRequest } from "../../services/auth";
+import { getSafeRedirectPath } from "../../utils/safeRedirect";
 
 const { Title } = Typography;
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
 
+  const resolveAfterAuth = useCallback(() => {
+    const params = new URLSearchParams(location.search);
+    const next = getSafeRedirectPath(params.get("redirect"));
+    navigate(next ?? "/", { replace: true });
+  }, [location.search, navigate]);
+
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (token) {
-      navigate("/", { replace: true });
-    }
-  }, [navigate]);
+    if (!localStorage.getItem("token")) return;
+    resolveAfterAuth();
+  }, [resolveAfterAuth]);
 
   const onFinish = async (values: LoginRequest) => {
     setLoading(true);
@@ -23,7 +29,7 @@ export default function LoginPage() {
       const res = await authApi.login(values);
       localStorage.setItem("token", res.access_token);
       message.success(`欢迎回来，${res.user.name}`);
-      navigate("/", { replace: true });
+      resolveAfterAuth();
     } catch (err: any) {
       const detail = err?.response?.data?.detail || "登录失败，请重试";
       message.error(detail);

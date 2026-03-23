@@ -61,7 +61,9 @@ export default function MainLayout() {
       .then((user) => setCurrentUser(user))
       .catch(() => {
         localStorage.removeItem("token");
-        navigate("/login", { replace: true });
+        const path = `${window.location.pathname}${window.location.search}`;
+        const redirect = encodeURIComponent(path);
+        navigate(`/login?redirect=${redirect}`, { replace: true });
       })
       .finally(() => setLoading(false));
   }, [navigate]);
