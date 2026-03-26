@@ -30,6 +30,7 @@ import {
   type HistoryQueryParams,
   type FailureProcessOptions,  // 标注弹窗选项
   type FailureProcessRequest,  // 标注提交请求
+  type ModuleItem,
   type InheritFailureReasonRequest,
   type InheritSourceOptions,
   type InheritSourceRecordItem,
@@ -197,6 +198,30 @@ const DEFAULT_WIDTHS: Record<string, number> = {
 
 /** 从表格区域量得的高度中，为表头与底部分页（含每页条数）预留的像素，用于推算 `scroll.y` */
 const HISTORY_TABLE_SCROLL_RESERVE_PX = 118;
+
+/** main_module 与 ums_module_owner.module 小写匹配（与后端模块责任人逻辑一致） */
+function findModuleItemInsensitive(
+  modules: ModuleItem[] | undefined,
+  mainModule: string | undefined,
+): ModuleItem | undefined {
+  if (!modules?.length || !mainModule?.trim()) return undefined;
+  const q = mainModule.trim().toLowerCase();
+  return modules.find((m) => m.module.trim().toLowerCase() === q);
+}
+
+/** bug：按模块负责人在 ums_email 中解析为「姓名 工号」；无姓名则退回工号 */
+function formatBugOwnerDisplay(
+  employeeId: string | undefined,
+  opts: FailureProcessOptions | null,
+): string {
+  if (!employeeId?.trim()) return "";
+  const id = employeeId.trim();
+  const row = opts?.owners?.find((o) => o.employee_id === id);
+  if (row?.name?.trim()) {
+    return `${row.name.trim()} ${id}`;
+  }
+  return id;
+}
 
 export type HistoryPageProps = {
   /** 用例执行历史钻取（spec/12），URL 为 /history/case-executions */
@@ -515,12 +540,14 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       const firstFailed = selectedRows.find(
         (r) => r.case_result === "failed" || r.case_result === "error"
       );
-      const defaultModule = firstFailed?.main_module ?? undefined;
+      const rawModule = firstFailed?.main_module ?? undefined;
+      const modItem0 = findModuleItemInsensitive(opts.modules, rawModule);
+      const moduleValue = modItem0?.module ?? rawModule;
       processForm.setFieldsValue({
         failed_type: undefined,
         owner: undefined,
         reason: undefined,
-        module: defaultModule,
+        module: moduleValue,
       });
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } }; message?: string };
@@ -1518,20 +1545,26 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
                 const firstFailed = selectedRows.find(
                   (r) => r.case_result === "failed" || r.case_result === "error"
                 );
-                const defaultModule = firstFailed?.main_module ?? undefined;
-                processForm.setFieldValue("module", defaultModule);
-                const modItem = defaultModule
-                  ? failureProcessOptions?.modules?.find((m) => m.module === defaultModule)
-                  : undefined;
-                processForm.setFieldValue("owner", modItem?.owner ?? undefined);
+                const rawModule = firstFailed?.main_module ?? undefined;
+                const modItem = findModuleItemInsensitive(
+                  failureProcessOptions?.modules,
+                  rawModule,
+                );
+                processForm.setFieldValue("module", modItem?.module ?? rawModule);
+                processForm.setFieldValue(
+                  "owner",
+                  formatBugOwnerDisplay(modItem?.owner, failureProcessOptions),
+                );
               }
             }
             if ("module" in changed && isBugType(all.failed_type as string)) {
-              // 模块变化时，跟踪人默认值改为 ums_module_owner.owner
               const mod = all.module as string;
               const modItem = failureProcessOptions?.modules?.find((m) => m.module === mod);
               if (modItem?.owner) {
-                processForm.setFieldValue("owner", modItem.owner);
+                processForm.setFieldValue(
+                  "owner",
+                  formatBugOwnerDisplay(modItem.owner, failureProcessOptions),
+                );
               }
             }
           }}
@@ -1574,20 +1607,31 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
           <Form.Item
             name="owner"
             label="跟踪人"
-            rules={[{ required: true, message: "请选择跟踪人" }]}
+            rules={[
+              { required: true, message: "请填写跟踪人" },
+              { max: 100, message: "最多 100 字符" },
+            ]}
           >
-            <Select
-              placeholder="请选择跟踪人"
-              allowClear
-              showSearch
-              filterOption={(input, option) =>
-                (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-              }
-              options={failureProcessOptions?.owners?.map((o) => ({
-                label: o.name,
-                value: o.employee_id,
-              })) ?? []}
-            />
+            {processFailedType && isBugType(processFailedType) ? (
+              <Input
+                placeholder="按模块自动带出「姓名 工号」，可修改"
+                allowClear
+                maxLength={100}
+              />
+            ) : (
+              <Select
+                placeholder="请选择跟踪人"
+                allowClear
+                showSearch
+                filterOption={(input, option) =>
+                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
+                }
+                options={failureProcessOptions?.owners?.map((o) => ({
+                  label: o.name,
+                  value: o.employee_id,
+                })) ?? []}
+              />
+            )}
           </Form.Item>
           <Form.Item
             name="reason"

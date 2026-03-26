@@ -83,7 +83,7 @@
 | 标题 | 「失败记录标注」 |
 | 宽度 | 建议 480px～520px，适配表单项纵向排列 |
 | 拖拽 | 可选，非必须 |
-| 字段顺序 | 失败类型 → 跟踪人 → 详细原因 → 模块（条件显示） |
+| 字段顺序 | 失败类型 → 模块（条件显示，仅 bug）→ 跟踪人 → 详细原因 |
 | 底部按钮 | 左侧「取消」，右侧「确定」，符合 Ant Design Modal 默认布局 |
 
 ### 4.2 字段定义
@@ -91,9 +91,9 @@
 | 字段 | 控件类型 | 必填 | 默认值逻辑 | 备选数据来源 | 联动逻辑 |
 |------|----------|------|------------|--------------|----------|
 | 失败类型 | 下拉单选 Select | 是 | 无默认，用户必选 | `case_failed_type.failed_reason_type`，按 id 或字母排序 | 选择 `bug` 时显示「模块」字段；切换失败类型时，跟踪人默认值联动更新 |
-| 跟踪人 | 下拉单选 Select | 是 | 根据失败类型：选中后取 `case_failed_type.owner` 作为默认；若失败类型为 `bug` 且已选模块，则取 `ums_module_owner.owner`（与所选模块对应） | `ums_email` 表，展示 `name`，提交值用 `employee_id` | 失败类型切换时重新取默认；模块切换时（仅 bug）重新取默认 |
+| 跟踪人 | **非 bug**：下拉 Select；**bug**：单行输入 Input | 是 | **非 bug**：选类型后默认 `case_failed_type.owner`（工号），选项来自 `ums_email`；**bug**：按当前模块匹配 `ums_module_owner`（`main_module` 与 `module` **忽略大小写**），将负责人工号在 `ums_email` 中解析为 **`姓名 工号`**（半角空格）填入输入框，**可改** | 同上 | 失败类型切换时重新取默认；**bug** 下切换模块时按新模块重算默认展示串 |
 | 详细原因 | 多行文本框 TextArea | 是 | 无 | — | 无 |
-| 模块 | 下拉单选 Select | 条件必填 | 默认 `pipeline_history.main_module`（多条记录时取第一条或取众数，见 5.3） | `ums_module_owner.module` | **仅当失败类型 = `bug` 时显示**；显示时，跟踪人默认值改为 `ums_module_owner.owner`（module = 所选模块） |
+| 模块 | 下拉单选 Select | 条件必填 | 默认 `pipeline_history.main_module`（见 5.3）；与选项列表 **忽略大小写** 匹配到规范模块名 | `ums_module_owner.module` | **仅当失败类型 = `bug` 时显示**；变更模块时跟踪人默认更新为对应 **`姓名 工号`** |
 
 ### 4.3 失败类型 `bug` 的匹配规则
 
@@ -105,7 +105,7 @@
 | 字段 | 校验规则 |
 |------|----------|
 | 失败类型 | 必选，未选择时提示「请选择失败类型」 |
-| 跟踪人 | 必选，未选择时提示「请选择跟踪人」 |
+| 跟踪人 | 必填；非空校验提示「请填写跟踪人」；**bug** 时建议最大长度 100 字符（与 `pipeline_failure_reason.owner` 一致） |
 | 详细原因 | 必填，空或仅空格时提示「请输入详细原因」；建议最大长度 2000 字符（与 `reason` text 类型兼容） |
 | 模块 | 当失败类型为 `bug` 时必选，未选择时提示「请选择模块」 |
 
@@ -159,7 +159,7 @@
 |------|------|------|------|
 | history_ids | array[int] | 是 | 选中的 `pipeline_history.id` 列表 |
 | failed_type | string | 是 | 失败类型，来自 `case_failed_type.failed_reason_type` |
-| owner | string | 是 | 跟踪人工号，对应 `ums_email.employee_id` |
+| owner | string | 是 | **非 bug** 多为工号；**bug** 时为失败跟踪人展示串（如 **`姓名 工号`**），与 `pipeline_failure_reason.owner` 一致，可自定义 |
 | reason | string | 是 | 详细失败原因 |
 | module | string | 条件 | 当 `failed_type` 为 `bug` 时必填，来自 `ums_module_owner.module` |
 

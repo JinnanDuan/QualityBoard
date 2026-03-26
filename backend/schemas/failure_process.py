@@ -42,7 +42,7 @@ class FailureProcessRequest(BaseModel):
 
     history_ids: List[int]  # 选中的 pipeline_history.id 列表
     failed_type: str  # 失败类型，来自 case_failed_type.failed_reason_type
-    owner: str  # 跟踪人工号，对应 ums_email.employee_id
+    owner: str  # 失败跟踪人：非 bug 时多为工号；bug 时为「姓名 工号」等展示串（与 pipeline_failure_reason.owner 一致）
     reason: str  # 详细失败原因
     module: Optional[str] = None  # 模块，仅 failed_type=bug 时必填
 

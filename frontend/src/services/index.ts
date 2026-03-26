@@ -93,7 +93,7 @@ export interface FailureProcessOptions {
 export interface FailureProcessRequest {
   history_ids: number[];
   failed_type: string;
-  owner: string;  // 跟踪人工号
+  owner: string;  // 失败跟踪人：非 bug 多为工号；bug 时为「姓名 工号」展示串，可自定义
   reason: string;
   module?: string;  // 仅 failed_type=bug 时必填
 }
