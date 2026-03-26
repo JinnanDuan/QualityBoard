@@ -4,13 +4,12 @@
 # ============================================================
 
 import logging
-from typing import List, Optional, Set
+from typing import List, Set
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.models.case_failed_type import CaseFailedType
 from backend.models.pipeline_failure_reason import PipelineFailureReason
 from backend.models.pipeline_history import PipelineHistory
 from backend.schemas.one_click_analyze import (
@@ -21,6 +20,7 @@ from backend.services.case_dev_owner_helpers import (
     build_module_to_case_dev_owner_display,
     case_dev_owner_display_for_row,
 )
+from backend.services.failed_type_helpers import get_bug_failed_type_value
 from backend.services.inherit_failure_reason_service import (
     _mysql_get_lock,
     _mysql_release_lock,
@@ -39,17 +39,6 @@ _LOCK_MAX_LEN = 64
 def _lock_name_one_click(batch: str) -> str:
     n = f"one_click_tb_{batch}"
     return n[:_LOCK_MAX_LEN]
-
-
-async def _get_bug_failed_type_value(db: AsyncSession) -> Optional[str]:
-    """返回 case_failed_type 中代表 bug 的 failed_reason_type 原值。"""
-    stmt = (
-        select(CaseFailedType.failed_reason_type)
-        .where(func.lower(func.trim(CaseFailedType.failed_reason_type)) == "bug")
-        .limit(1)
-    )
-    r = await db.execute(stmt)
-    return r.scalars().first()
 
 
 async def _bulk_set_analyzed(db: AsyncSession, history_ids: List[int]) -> None:
@@ -114,7 +103,7 @@ async def one_click_analyze(
         )
 
     try:
-        bug_failed_type = await _get_bug_failed_type_value(db)
+        bug_failed_type = await get_bug_failed_type_value(db)
         if not bug_failed_type:
             logger.error("一键分析：case_failed_type 未配置 bug")
             raise HTTPException(

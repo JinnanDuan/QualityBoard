@@ -226,6 +226,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const [inheritModalVisible, setInheritModalVisible] = useState(false);
   const [inheritSubmitLoading, setInheritSubmitLoading] = useState(false);
   const [oneClickLoading, setOneClickLoading] = useState(false);
+  const [bugNotifyLoading, setBugNotifyLoading] = useState(false);
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportText, setReportText] = useState("");
@@ -501,6 +502,8 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
           })();
   /** 勾选至少一行且同属一轮次，用于一键生成通报 */
   const reportBtnEnabled = selectedRowKeys.length > 0 && currentBatch != null;
+  /** 与一键分析相同勾选范围，且必须同一轮次（spec/13） */
+  const notifyBtnEnabled = processBtnEnabled && currentBatch != null;
   const showBatchDimension = currentBatch != null;
 
   const openProcessModal = async () => {
@@ -717,6 +720,79 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
           }
         } finally {
           setOneClickLoading(false);
+        }
+      },
+    });
+  };
+
+  /** 一键通知：锚点定批次，向该批所有 bug 失败跟踪人发 WeLink（spec/13） */
+  const handleOneClickBugNotify = () => {
+    if (!notifyBtnEnabled) return;
+    let anchorId: number | undefined;
+    for (const key of selectedRowKeys) {
+      const row = data.find((r) => r.id === Number(key));
+      if (
+        row &&
+        (row.case_result === "failed" || row.case_result === "error")
+      ) {
+        anchorId = row.id;
+        break;
+      }
+    }
+    if (anchorId === undefined) return;
+
+    const batchLabel = currentBatch ?? "—";
+    const selectedIds = selectedRowKeys.map((k) => Number(k));
+
+    Modal.confirm({
+      title: "一键通知",
+      content: `将向批次「${batchLabel}」内所有「失败类型为 bug」的用例跟踪人发送 WeLink 通知（不仅限于当前勾选行）。是否继续？`,
+      okText: "确定",
+      cancelText: "取消",
+      onOk: async () => {
+        setBugNotifyLoading(true);
+        try {
+          const res = await historyApi.oneClickBugNotify({
+            anchor_history_id: anchorId!,
+            selected_history_ids: selectedIds,
+          });
+          message.success(res.message || `已通知 ${res.notified_count} 人`);
+          if (
+            (res.skipped_no_domain_count ?? 0) > 0 ||
+            (res.skipped_parse_owner_count ?? 0) > 0 ||
+            (res.failed_delivery_count ?? 0) > 0
+          ) {
+            const parts: string[] = [];
+            if (res.skipped_parse_owner_count)
+              parts.push(`工号解析失败 ${res.skipped_parse_owner_count} 组`);
+            if (res.skipped_no_domain_count)
+              parts.push(
+                `未配置域账号 ${res.skipped_no_domain_count} 组，请在 ums_email 维护 domain_account`
+              );
+            if (res.failed_delivery_count)
+              parts.push(`WeLink 发送失败 ${res.failed_delivery_count} 组`);
+            message.warning(parts.join("；"));
+          }
+          setSelectedRowKeys([]);
+          const params = paramsFromUrl();
+          await fetchData({
+            ...params,
+            page: params.page ?? 1,
+            page_size: params.page_size ?? 20,
+          });
+        } catch (e: unknown) {
+          const err = e as { response?: { data?: { detail?: string } }; message?: string };
+          const msg = err?.response?.data?.detail || err?.message || "一键通知失败";
+          if (typeof msg === "string") {
+            message.error(msg);
+          } else if (Array.isArray(msg)) {
+            const parts = (msg as Array<{ msg?: string }>).map((m) => m.msg || "");
+            message.error(parts.join("; "));
+          } else {
+            message.error("一键通知失败");
+          }
+        } finally {
+          setBugNotifyLoading(false);
         }
       },
     });
@@ -1353,9 +1429,18 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
             <Button
               loading={oneClickLoading}
               onClick={handleOneClickAnalyze}
-              disabled={!processBtnEnabled || loading || oneClickLoading}
+              disabled={!processBtnEnabled || loading || oneClickLoading || bugNotifyLoading}
             >
               一键分析
+            </Button>
+          </Col>
+          <Col>
+            <Button
+              loading={bugNotifyLoading}
+              onClick={handleOneClickBugNotify}
+              disabled={!notifyBtnEnabled || loading || bugNotifyLoading || oneClickLoading}
+            >
+              一键通知
             </Button>
           </Col>
           <Col>

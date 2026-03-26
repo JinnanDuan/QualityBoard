@@ -1,0 +1,30 @@
+# WeLink 卡片发送 — 配置文件模板（勿提交真实密钥）
+# 部署时将复制为独立文件（如 /etc/dt-report/welink_card.ini），并在 .env 中设置：
+#   WELINK_CARD_INI_PATH=/etc/dt-report/welink_card.ini
+# 各 section 键名区分大小写（与黄区 testvigil/tuil/welink_card 一致）。
+
+[login_header]
+User-Agent = Mozilla/5.0 (compatible; DT-Report/1.0)
+
+[login_data]
+uid = <登录账号>
+password = <登录密码>
+actionFlag = loginAuthenticate
+lang = en
+loginMethod = login
+loginPageType = mix
+verifyCode = 2345
+
+[login_url]
+url = <登录接口完整 URL>
+
+[share_header]
+Content-Type = application/json
+
+[share_data]
+modelType = 1
+resourceId = <资源 ID>
+resourceType = welinkshare
+
+[share_url]
+url = <分享/卡片接口完整 URL>

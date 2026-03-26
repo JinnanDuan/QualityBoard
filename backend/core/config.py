@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     WELINK_API_URL: str = ""
     WELINK_APP_ID: str = ""
     WELINK_APP_SECRET: str = ""
+    # WeLink 卡片（会话登录 INI）：仓库仅 config/welink_card.ini.example，部署时挂载真实文件并填绝对路径
+    WELINK_CARD_INI_PATH: str = ""
+    # 站点对外根 URL（无尾部斜杠），用于一键通知 WeLink 卡片内 /history 绝对链接
+    PUBLIC_APP_URL: str = ""
 
     # LDAP 域登录（LDAP_HOST 留空则使用 MVP 密码模式）
     LDAP_HOST: str = ""

@@ -191,6 +191,13 @@ CORS_ORIGINS=["http://your-domain.com"]
 WELINK_API_URL=
 WELINK_APP_ID=
 WELINK_APP_SECRET=
+
+# WeLink 卡片（一键通知等）：复制 config/welink_card.ini.example 为服务器上的私密文件并填写真实值，
+# 再设置本变量为绝对路径；勿将含密码的 INI 提交到代码仓
+WELINK_CARD_INI_PATH=
+
+# 一键通知 WeLink 卡片中的「详细执行历史」链接：填写用户浏览器可访问的根地址（无尾部 /）
+PUBLIC_APP_URL=https://your-report-host.example.com
 ```
 
 ### 4.4 启动后端

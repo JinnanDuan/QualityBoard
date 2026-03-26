@@ -136,6 +136,32 @@ export interface OneClickAnalyzeResponse {
   skipped_not_eligible_count: number;
 }
 
+export interface OneClickBugNotifyRequest {
+  anchor_history_id: number;
+  selected_history_ids?: number[];
+}
+
+export interface BugNotifyFailedOwnerItem {
+  owner: string;
+  reason: string;
+}
+
+export interface OneClickBugNotifyDetails {
+  skipped_owners: string[];
+  failed_owners: BugNotifyFailedOwnerItem[];
+}
+
+export interface OneClickBugNotifyResponse {
+  success: boolean;
+  message: string;
+  batch: string;
+  notified_count: number;
+  skipped_no_domain_count: number;
+  skipped_parse_owner_count: number;
+  failed_delivery_count: number;
+  details?: OneClickBugNotifyDetails | null;
+}
+
 /** GET /history/batch-report 轮次通报汇总 */
 export interface BatchReportModuleCount {
   main_module: string;
@@ -239,6 +265,10 @@ export const historyApi = {
   /** 一键分析：整批未分析失败/异常标记为 bug（锚点解析批次） */
   oneClickAnalyze(data: OneClickAnalyzeRequest): Promise<OneClickAnalyzeResponse> {
     return request.post("/history/one-click-analyze", data, { timeout: 60000 }) as any;
+  },
+  /** 一键通知：按锚点批次向 bug 失败跟踪人发 WeLink（spec/13） */
+  oneClickBugNotify(data: OneClickBugNotifyRequest): Promise<OneClickBugNotifyResponse> {
+    return request.post("/history/one-click-bug-notify", data, { timeout: 120000 }) as any;
   },
   /** 轮次通报：按批次汇总结果分布与 bug 归因（用于复制群通告） */
   batchReport(startTime: string): Promise<BatchReportResponse> {

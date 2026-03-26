@@ -40,6 +40,10 @@ from backend.schemas.inherit_failure_reason import (
 )
 from backend.schemas.batch_report import BatchReportResponse
 from backend.schemas.one_click_analyze import OneClickAnalyzeRequest, OneClickAnalyzeResponse
+from backend.schemas.one_click_bug_notify import (
+    OneClickBugNotifyRequest,
+    OneClickBugNotifyResponse,
+)
 # list_history, get_history_options: Service 层的查询函数
 from backend.services.history_service import get_history_options, list_history
 from backend.services.failure_process_service import get_failure_process_options, process_failure  # 失败标注 Service
@@ -51,6 +55,7 @@ from backend.services.inherit_failure_reason_service import (
 )
 from backend.services.batch_report_service import get_batch_report
 from backend.services.one_click_analyze_service import one_click_analyze
+from backend.services.one_click_bug_notify_service import one_click_bug_notify
 
 # 创建一个路由器实例:
 # - prefix="/history": 这个路由器下的所有端点都自动加上 /history 前缀
@@ -139,6 +144,17 @@ async def post_one_click_analyze(
     """一键分析：整批未分析失败/异常用例标记为 bug，跟踪人为用例开发责任人（姓名+工号）。"""
     analyzer_employee_id = payload.get("sub", "")
     return await one_click_analyze(db, req, analyzer_employee_id)
+
+
+@router.post("/one-click-bug-notify", response_model=OneClickBugNotifyResponse)
+async def post_one_click_bug_notify(
+    req: OneClickBugNotifyRequest,
+    db: AsyncSession = Depends(get_db),
+    payload: dict = Depends(get_current_user),
+):
+    """一键通知：按锚点批次向所有 bug 失败跟踪人发送 WeLink 卡片（spec/13）。"""
+    operator_employee_id = payload.get("sub", "")
+    return await one_click_bug_notify(db, req, operator_employee_id)
 
 
 @router.get("/batch-report", response_model=BatchReportResponse)
