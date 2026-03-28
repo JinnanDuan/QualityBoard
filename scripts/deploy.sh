@@ -15,7 +15,7 @@ if [ ! -d ".venv" ]; then
 fi
 "$PROJECT_DIR/.venv/bin/pip" install --upgrade pip -q
 "$PROJECT_DIR/.venv/bin/pip" install -r backend/requirements.txt -q
-echo "  后端依赖安装完成"
+echo "  后端依赖安装完成。WeLink 一键通知需手动执行 playwright install chromium，见 docs/03_deployment_guide.md"
 
 # 2) 前端构建
 echo ""

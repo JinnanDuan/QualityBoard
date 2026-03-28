@@ -1,22 +1,21 @@
-# WeLink 卡片发送 — 配置文件模板（勿提交真实密钥）
-# 部署时将复制为独立文件（如 /etc/dt-report/welink_card.ini），并在 .env 中设置：
-#   WELINK_CARD_INI_PATH=/etc/dt-report/welink_card.ini
-# 各 section 键名区分大小写（与黄区 testvigil/tuil/welink_card 一致）。
+# WeLink 卡片发送 — 配置文件模板（勿提交真实账号密码）
+# 部署时复制为独立文件，在 .env 中设置 WELINK_CARD_INI_PATH 指向该文件。
+#
+# 登录：Playwright headless 打开登录页、填表、点击登录，登录提交后等待 networkidle，再读 Cookie POST share_url。
 
-[login_header]
-User-Agent = Mozilla/5.0 (compatible; DT-Report/1.0)
-
-[login_data]
-uid = <登录账号>
+[browser_login]
+login_page_url = https://login.huawei.com/login1
+# 可选，默认 120000（毫秒），最小 5000
+# login_wait_timeout_ms = 180000
+# 内网自签证书时设为 false
+# ssl_verify = false
+# 可选，与手动 Chrome 一致时可减轻拦截
+# browser_user_agent = Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+username = <登录用户名>
 password = <登录密码>
-actionFlag = loginAuthenticate
-lang = en
-loginMethod = login
-loginPageType = mix
-verifyCode = 2345
 
-[login_url]
-url = <登录接口完整 URL>
+[share_url]
+url = <分享/卡片接口完整 URL>
 
 [share_header]
 Content-Type = application/json
@@ -25,6 +24,3 @@ Content-Type = application/json
 modelType = 1
 resourceId = <资源 ID>
 resourceType = welinkshare
-
-[share_url]
-url = <分享/卡片接口完整 URL>

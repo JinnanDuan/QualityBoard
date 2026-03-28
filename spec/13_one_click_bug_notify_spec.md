@@ -180,9 +180,10 @@
 ## 8. WeLink 集成（`rolling_welink_share`）
 
 - 业务代码中 **统一调用** `**backend.integrations.welink_card.rolling_welink_share(user, content, remark, url)`**，返回 **`(bool, str)`**（是否成功、中文说明）。兼容别名 `**rolling_welink_alert**`（黄区旧名）。
-- **配置**：与黄区 `testvigil/tuil/welink_card` 相同，使用 **独立 INI**（`login_*` / `share_*` 等 section）。仓库内仅保留模板 `**config/welink_card.ini.example**`；部署时将真实文件放在服务器（如 `/etc/dt-report/welink_card.ini`），并通过环境变量 `**WELINK_CARD_INI_PATH**` 指向该文件（见 `backend/core/config.py`、`.env.example`）。
-- **禁止**在代码中硬编码登录口令、URL、`resourceId` 等敏感项；未设置 `WELINK_CARD_INI_PATH` 或文件不可读时，函数返回失败说明，由上层计入发送失败。
-- **实现说明**：黄区原 `share.py` 中 `resp.share_data != 200` 为笔误，已纠正为 `**resp.status_code**`；HTTP 使用项目已有 `**httpx**`，不新增 `requests` 依赖。
+- **配置**：使用 **独立 INI**（见 `**config/welink_card.ini.example**`）：`**[browser_login]**`（`login_page_url`、`username`、`password`；可选 `login_wait_timeout_ms`、`ssl_verify`、`browser_user_agent`）、`**[share_url]**`、`**[share_header]**`、`**[share_data]**`（`modelType`、`resourceId`、`resourceType`）；运行时合并 `ids`、`content`、`remark`、`url`。部署路径由 `**WELINK_CARD_INI_PATH**` 指定。
+- **登录与鉴权**：使用 **`playwright` headless Chromium** 打开登录页、填写账号密码并点击登录，登录提交后等待 **`networkidle`**，再从浏览器读取 **Cookie**，以标准 **`Cookie`** 请求头发送分享请求；**不再**使用已废弃的 HTTP `login_url` 表单登录。进程内 **缓存 Cookie**，优先复用，失败则重新登录；最多 **3 次**尝试。成功判定以响应 JSON 中 **`is_success == 1`**（见实现）。
+- **禁止**在代码中硬编码口令；日志中 **禁止**打印密码与完整 Cookie。
+- **依赖**：`httpx` + `playwright`（Python 包随 `requirements.txt` 安装）；**Chromium 浏览器**需在目标环境 **手动**执行 `**python -m playwright install chromium**`（常需代理或离线拷贝缓存），**不**放在 `deploy.sh` 中，见 `docs/03_deployment_guide.md`。
 - 调用失败时打 **`logger.exception`**（或 WARNING，视场景）；日志中 **禁止**打印密码与完整 Cookie。
 
 ---
@@ -273,5 +274,7 @@
 | 1.0 | 2026-03-25 | 初稿：与一键分析对齐的触发方式、批次键、WeLink 四参数、ums_email 与链接 query 规约、占位说明 |
 | 1.1 | 2026-03-25 | §8：迁入 `welink_card` 实现、`WELINK_CARD_INI_PATH`、`config/welink_card.ini.example` |
 | 1.2 | 2026-03-25 | §5.1：补充 `PUBLIC_APP_URL` 与后端拼接规则 |
+| 1.3 | 2026-03-25 | §8：改为 Playwright 登录取 Cookie + INI `browser_login`；废弃 HTTP login 段 |
+| 1.4 | 2026-03-25 | §8：Chromium 改由部署文档说明手动安装，不放入 `deploy.sh` |
 
 

@@ -259,7 +259,21 @@ cd /opt/dt-report
 ./scripts/deploy.sh
 ```
 
-此脚本会依次：安装后端依赖 -> 构建前端 -> 启动后端。
+此脚本会依次：安装后端依赖（`pip install -r backend/requirements.txt`，含 **playwright** Python 包）-> 构建前端 -> 启动后端。**不在此脚本中下载 Chromium**，避免无外网/需代理时 deploy 失败；一键通知所需的浏览器见下节 **手动安装**。
+
+**WeLink 一键通知：Playwright Chromium（手动，首次部署做一次即可）**
+
+1. 在能访问外网或已配置 **`HTTPS_PROXY` / `HTTP_PROXY`** 的 shell 中执行：
+   ```bash
+   cd /opt/dt-report   # 项目根目录
+   .venv/bin/python -m playwright install chromium
+   ```
+2. 若提示缺系统库：执行 `playwright install-deps chromium`（内部会调 `apt-get` 装系统包）。**注意**：很多企业网里 **`install chromium` 需配 HTTPS 代理访问公网 CDN**，而 **`install-deps` 走 apt 内网源**，若仍带着同一代理会导致 apt 失败。建议：**先配代理装好 Chromium 后，在新 shell 里 `unset HTTPS_PROXY HTTP_PROXY ALL_PROXY` 再执行** `sudo .venv/bin/python -m playwright install-deps chromium`（或按终端提示逐条 `apt-get install`）。
+3. 完全离线环境：在有外网的同架构机器安装后，将 `~/.cache/ms-playwright` 拷至运行后端的用户目录下相同路径。
+
+未安装 Chromium 时，**一键通知**在调用 WeLink 时会失败；其余功能不受影响。
+
+若通过 **Xshell** 等开启 **X11 转发** 的会话启动后端，一键通知可能弹出需 **Xmanager** 的提示：属 Chromium 误连图形环境。代码已对 Playwright **去掉 DISPLAY**；仍出现时可在 **`start.sh` / systemd** 中确保 `DISPLAY` 未注入，或关闭会话的 X11 转发后重启后端。
 
 ### 6.2 日常启停
 
