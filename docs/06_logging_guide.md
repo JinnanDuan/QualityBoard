@@ -85,4 +85,4 @@ grep "\[ERROR\]" app.log
 
 - **request_id**：每次 HTTP 请求自动生成 UUID，贯穿该请求的所有日志，响应头返回 `X-Request-ID`
 - **敏感信息过滤**：Formatter 层对 password、token、Authorization 等做脱敏
-- **启动方式**：`./scripts/start.sh` 调用 `python -m backend.run`，日志由 Python logging 写入，不生成 nohup.out
+- **启动方式**：`./scripts/start.sh` 调用 `python -m backend.run`；**应用日志**仅由 Python logging 写入根目录 `app.log`（及 `access.log`）。进程 stdout/stderr 重定向到 **`nohup.out`**（启动器/未接入 logging 的输出），**勿**再重定向到 `app.log`，否则与 FileHandler 双写同文件会出现每条日志两行。

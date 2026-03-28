@@ -3,7 +3,8 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PID_FILE="$PROJECT_DIR/.pid"
-LOG_FILE="$PROJECT_DIR/app.log"
+# 应用日志仅由 Python logging 写入项目根目录 app.log；勿再将进程 stdout 重定向到 app.log，否则会与 FileHandler 重复写同一文件。
+NOHUP_LOG="$PROJECT_DIR/nohup.out"
 PORT=8000
 
 if [ -f "$PID_FILE" ]; then
@@ -18,7 +19,7 @@ fi
 echo "[dt-report] 启动中..."
 cd "$PROJECT_DIR"
 
-nohup "$PROJECT_DIR/.venv/bin/python" -m backend.run >> "$PROJECT_DIR/app.log" 2>&1 &
+nohup "$PROJECT_DIR/.venv/bin/python" -m backend.run >> "$NOHUP_LOG" 2>&1 &
 
 echo $! > "$PID_FILE"
 sleep 3

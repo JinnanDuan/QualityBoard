@@ -37,9 +37,10 @@ if __name__ == "__main__":
             sys.exit(1)
 
     port = int(os.environ.get("PORT", "8000"))
+    # 日志已在上方 dictConfig 一次；勿再传入 log_config，否则 uvicorn 会再次 dictConfig，易导致同一 logger 挂载重复 FileHandler。
     uvicorn.run(
         "backend.main:app",
         host="0.0.0.0",
         port=port,
-        log_config=get_logging_config(),
+        log_config=None,
     )

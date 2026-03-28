@@ -37,6 +37,7 @@ backend/data/*
 
 # Runtime
 .pid
+nohup.out
 
 # Logs
 *.log
