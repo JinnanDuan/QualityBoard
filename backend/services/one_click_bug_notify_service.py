@@ -25,6 +25,7 @@ from backend.schemas.one_click_bug_notify import (
     OneClickBugNotifyResponse,
 )
 from backend.services.failed_type_helpers import get_bug_failed_type_value
+from backend.services.owner_parsing import parse_employee_id_from_owner
 
 logger = logging.getLogger(__name__)
 
@@ -34,17 +35,6 @@ ALLOWED_RESULTS = ("failed", "error")
 DETAIL_CAP = 20
 WELINK_GAP_SEC = 0.3
 TITLE = "rolling线防护通知"
-
-
-def _parse_employee_id_from_owner(owner: str) -> Optional[str]:
-    """取 owner 最后一个半角空格之后的子串作为工号；无半角空格则无法解析。"""
-    if not owner or not str(owner).strip():
-        return None
-    s = str(owner).strip()
-    if " " not in s:
-        return None
-    part = s.rsplit(" ", 1)[-1].strip()
-    return part if part else None
 
 
 def _build_history_url(base: str, batch: str, owner_full: str, failed_type: str) -> str:
@@ -162,7 +152,7 @@ async def one_click_bug_notify(
     parse_failed: List[str] = []
     owner_to_eid: Dict[str, str] = {}
     for owner_str in counts:
-        eid = _parse_employee_id_from_owner(owner_str)
+        eid = parse_employee_id_from_owner(owner_str)
         if not eid:
             parse_failed.append(owner_str)
         else:
