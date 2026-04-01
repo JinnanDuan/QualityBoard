@@ -63,7 +63,7 @@ dt-report/
 
 | 文件 | 说明 |
 |------|------|
-| `welink_card.py` | WeLink 卡片：`rolling_welink_share`。Playwright 登录取 Cookie + `httpx` POST `share_url`；INI 含 `[browser_login]`、`[share_url]` 等；Chromium 由运维 **手动** `playwright install chromium`（**spec/13**、部署文档） |
+| `welink_card.py` | WeLink 卡片：`rolling_welink_share`。Playwright 登录取 Cookie + `httpx` POST `share_url`；INI 含 `[browser_login]`、`[share_url]` 等。Chromium：**脚本部署**由运维按部署文档 **`playwright install chromium`**；**Docker 镜像**在构建阶段由 `Dockerfile` 执行 `install-deps`/`install chromium`（见 `docs/03_deployment_guide.md` 第 9 节） |
 
 ### `models/` — ORM 模型（数据库表映射）
 

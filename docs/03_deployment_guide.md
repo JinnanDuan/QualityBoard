@@ -361,7 +361,59 @@ mysql -u <用户名> -p -h <数据库IP> -P <端口> dt_infra -e "SELECT 1;"
 
 ---
 
-## 9. 目录结构参考
+## 9. Docker 镜像构建与运行（可选）
+
+仓库根目录提供 `Dockerfile`：基于 **Ubuntu 20.04**，在镜像内通过**离线 Node 包** + **离线 pnpm 可执行文件**构建前端，**Python 3.8**（系统 `python3`）虚拟环境安装后端依赖，启动命令与脚本部署一致（`python -m backend.run`，端口 **8000**）。
+
+**Ubuntu apt 源**：与同事实体部署方式一致，使用仓库内 **`docker/sources.list`**，构建时复制为镜像内的 `/etc/apt/sources.list`。默认内容为 **Ubuntu 20.04（focal）** 在内网镜像上的常见写法（示例主机为 `his-mirrors.huawei.com`）；若你司使用其他镜像地址，**直接修改该文件**即可，无需改 Dockerfile。注意官方发行版名为 **`focal-updates`**（带字母 **s**），不要写成 `focal-update`。
+
+**Node（离线包）**：镜像构建**不在容器内下载 Node**。构建前请**自行**下载官方 **`node-v*-linux-x64.tar.xz`**（如从 [Node 发行页](https://nodejs.org/dist/) 或公司内网镜像），放到项目 **`docker/nodejs-offline.tar.xz`**（仅改文件名即可，内容保持原包；勿提交 Git，已写入 `.gitignore`）。`Dockerfile` 通过 `COPY` 装入并解压到 `/usr/local`。
+
+**pnpm（离线可执行文件）**：**不在容器内使用 corepack / registry 安装 pnpm**。请从 [pnpm Releases](https://github.com/pnpm/pnpm/releases) 下载 **`pnpm-linuxstatic-x64`**（静态链接，适用于 Ubuntu 容器；建议选 **10.x** 与当前 `pnpm-lock.yaml` 大版本一致），保存为项目 **`docker/pnpm-offline`**（无扩展名即可，构建时复制为 `/usr/local/bin/pnpm` 并 `chmod +x`；勿提交 Git）。
+
+**npm 源（默认写入 Dockerfile）**：解压 Node 后执行 **`npm config set registry https://mirrors.tools.huawei.com/npm/`** 与 **`npm config set strict-ssl false`**，便于 **`pnpm install`** 走华为 npm 镜像。若需改用其它地址，可传 **`NPM_REGISTRY`**（见下表），或在本地修改 Dockerfile 中上述两行。
+
+**pip（Python 依赖）**：构建时在容器内执行 **`pip install -r backend/requirements.txt`**。不能访问公网 PyPI 时，请传入 **`PIP_INDEX_URL`**（内网 simple 地址，如 `https://mirrors.tools.huawei.com/pypi/simple`）；需要时加 **`PIP_TRUSTED_HOST`**（主机名）。能直连公网则可不传 `PIP_INDEX_URL`。
+
+**代理与 `NO_PROXY`（重要）**：`Dockerfile` 中**仅在安装 Playwright Chromium** 的那一步写了 `export http_proxy=...`。但使用 **`docker build --build-arg HTTP_PROXY=...`** 时，构建环境里仍可能让 **pip / pnpm 等进程读到代理变量**，从而经代理访问**内网** PyPI/npm，表现为 **pip 步骤极慢或卡住**。若同时使用**内网镜像**与**代理下载 Chromium**，请把内网 PyPI、npm 等域名写入 **`NO_PROXY`**（例如 `mirrors.tools.huawei.com,.tools.huawei.com`），**勿**只写 `localhost,127.0.0.1`。代理地址仅通过 build-arg 传入，**勿**写入 Dockerfile 提交到 Git。
+
+**构建前须已有** `docker/nodejs-offline.tar.xz`、`docker/pnpm-offline`。示例（华为内网源 + 需代理拉 Chromium 时）：
+
+```bash
+docker build \
+  --build-arg PIP_INDEX_URL=https://mirrors.tools.huawei.com/pypi/simple \
+  --build-arg PIP_TRUSTED_HOST=mirrors.tools.huawei.com \
+  --build-arg HTTP_PROXY=http://代理主机:端口 \
+  --build-arg HTTPS_PROXY=http://代理主机:端口 \
+  --build-arg NO_PROXY=localhost,127.0.0.1,mirrors.tools.huawei.com,.tools.huawei.com \
+  -t dt-report:local .
+```
+
+**其他内网源（可选 build-arg）**：向运维索取地址后，可与内网 apt、`sources.list` 组合使用。
+
+| build-arg | 含义 |
+|-----------|------|
+| `PIP_INDEX_URL` | 内网 PyPI 的 simple 地址。不传则使用默认 PyPI（需构建环境能访问公网）。 |
+| `PIP_TRUSTED_HOST` | 内网 PyPI 主机名（不含 `https://`），对应 pip `--trusted-host`；华为示例：`mirrors.tools.huawei.com`。 |
+| `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` | 主要用于 **Playwright 下载 Chromium**；若传入，**须**将内网 PyPI/npm 域名列入 `NO_PROXY`，见上文。 |
+| `NPM_REGISTRY` | 可选。`Dockerfile` 已默认配置华为 npm；若传入，仅在对应 `RUN` 中设置 `npm_config_registry` 覆盖，用于拉取前端依赖。 |
+
+若**不需要**代理下载 Chromium，可省略上表中 **`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`**，仅保留 `PIP_INDEX_URL`、`PIP_TRUSTED_HOST` 即可。
+
+运行时用环境变量注入 `DATABASE_URL`（须含 `charset=utf8mb4`）、`SECRET_KEY` 等，与 `.env` 约定一致；不要将含密码的 `.env` 复制进镜像上下文（`.dockerignore` 已排除 `.env`）。
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e DATABASE_URL='mysql+aiomysql://用户:密码@主机:3306/dt_infra?charset=utf8mb4' \
+  -e SECRET_KEY='请替换' \
+  dt-report:local
+```
+
+**说明**：WeLink 一键通知依赖 **Playwright Chromium**。`Dockerfile` 已在构建阶段执行 **`python -m playwright install-deps chromium`** 与 **`python -m playwright install chromium`**，镜像体积会明显增大。下载浏览器通常需访问 **Playwright 官方 CDN（公网）**；无直连时需 **`HTTP_PROXY`/`HTTPS_PROXY`**，且 **`NO_PROXY`** 中除内网镜像域名外，需保留代理能访问的公网主机规则（按你们网络策略配置）。若 pip 在代理开启时卡住，优先检查 **`NO_PROXY` 是否包含内网 PyPI 主机名**。
+
+---
+
+## 10. 目录结构参考
 
 部署完成后，`/opt/dt-report` 目录结构如下：
 

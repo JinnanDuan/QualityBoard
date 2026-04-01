@@ -13,6 +13,10 @@ build/
 # Node.js
 node_modules/
 frontend/dist/
+# Docker 构建用离线 Node / pnpm（手动放入，勿提交）
+docker/nodejs-offline.tar.xz
+docker/pnpm-offline
+
 frontend/.vite/
 
 # IDE
