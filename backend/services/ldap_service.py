@@ -49,4 +49,8 @@ async def verify_ldap_credentials(domain_account: str, password: str) -> bool:
     :param password: 域密码
     :return: True 表示校验通过，False 表示失败
     """
-    return await asyncio.to_thread(_verify_ldap_sync, domain_account, password)
+    # Python 3.8 无 asyncio.to_thread（3.9+）；用默认线程池等同语义
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, _verify_ldap_sync, domain_account, password
+    )
