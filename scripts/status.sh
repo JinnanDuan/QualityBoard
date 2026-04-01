@@ -2,7 +2,7 @@
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PID_FILE="$PROJECT_DIR/.pid"
-PORT=8000
+PORT="${PORT:-8000}"
 
 echo "====== dt-report 状态 ======"
 

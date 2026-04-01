@@ -209,12 +209,23 @@ cd /opt/dt-report
 ./scripts/start.sh
 ```
 
+默认监听 **8000**。若需其他端口（如 **80**），在启动前设置环境变量 **`PORT`**（`start.sh` / `status.sh` / `deploy.sh` 的提示与探测均与此一致）：
+
+```bash
+export PORT=80
+./scripts/start.sh
+```
+
+> Linux 上监听 **1024 以下端口**通常需要 **root** 或额外能力，请按运维规范处理。
+
 也可手动启动（前台模式，适合调试）：
 
 ```bash
 cd /opt/dt-report
 source .venv/bin/activate
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
+python -m backend.run
+# 默认端口 8000；指定端口：PORT=8080 python -m backend.run
+# 或直接：uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
 ### 4.5 验证后端
@@ -222,6 +233,8 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```bash
 curl http://localhost:8000/docs
 ```
+
+若已用 `PORT` 改为非 8000，请将 URL 中的端口改为与 `PORT` 一致。
 
 应返回 Swagger UI 的 HTML 页面，且页面中包含所有 API 路由分组（认证、看板、分组概览、执行明细、失败分析、用例管理、总结报告、通知、管理员后台）。
 
@@ -293,7 +306,7 @@ cd /opt/dt-report
 
 ### 6.3 说明
 
-- 后端通过 `python -m backend.run` 启动（内部使用 uvicorn），运行在 **端口 8000**，同时提供 API 和前端页面
+- 后端通过 `python -m backend.run` 启动（内部使用 uvicorn），**默认**监听 **端口 8000**；监听端口由环境变量 **`PORT`** 决定（与 `backend/run.py` 一致），未设置时即为 8000
 - PID 文件为项目根目录的 `.pid`
 - 日志由 Python logging 写入项目根目录：`app.log`（应用层）、`access.log`（访问日志），支持按大小轮转（单文件 10MB，app.log 保留 5 份，access.log 保留 3 份）
 - 查看实时日志：`tail -f /opt/dt-report/app.log` 或 `tail -f /opt/dt-report/access.log`
@@ -308,8 +321,8 @@ cd /opt/dt-report
 | ---- | ------------------------ | ------------------------------------------------------ | -------------------------------------------- |
 | 1    | 数据库连通性             | `mysql -u <用户名> -p -h <IP> -P <端口> dt_infra -e "SELECT 1;"` | 返回结果无报错                               |
 | 2    | 数据库表齐全             | `mysql -u <用户名> -p -h <IP> -P <端口> dt_infra -e "SHOW TABLES;"` | 显示 10 张表                                 |
-| 3    | 后端进程运行             | `./scripts/status.sh`                                  | 后端进程运行中，端口 8000 已监听             |
-| 4    | Swagger 文档可访问       | 浏览器访问 `http://<服务器IP>:8000/docs`               | 显示 Swagger UI，含 9 个路由分组             |
+| 3    | 后端进程运行             | `./scripts/status.sh`（若使用非默认端口，需 `export PORT=...` 与启动时一致） | 后端进程运行中，对应端口已监听               |
+| 4    | Swagger 文档可访问       | 浏览器访问 `http://<服务器IP>:8000/docs`（端口以实际 `PORT` 为准） | 显示 Swagger UI，含 9 个路由分组             |
 | 5    | API 路由正常             | 浏览器访问 `http://<服务器IP>:8000/api/v1/dashboard/trend` | 返回 `{"message": "TODO"}`                   |
 | 6    | 前端页面可访问           | 浏览器访问 `http://<服务器IP>:8000/`                   | 显示左侧导航菜单 + "首页大盘"占位内容       |
 | 7    | SPA 路由正常             | 浏览器访问 `http://<服务器IP>:8000/overview`           | 显示"分组执行历史"页面，无 404               |
@@ -363,7 +376,7 @@ mysql -u <用户名> -p -h <数据库IP> -P <端口> dt_infra -e "SELECT 1;"
 
 ## 9. Docker 镜像构建与运行（可选）
 
-仓库根目录提供 `Dockerfile`：基于 **Ubuntu 20.04**，在镜像内通过**离线 Node 包** + **离线 pnpm 可执行文件**构建前端，**Python 3.8**（系统 `python3`）虚拟环境安装后端依赖，启动命令与脚本部署一致（`python -m backend.run`，端口 **8000**）。
+仓库根目录提供 `Dockerfile`：基于 **Ubuntu 20.04**，在镜像内通过**离线 Node 包** + **离线 pnpm 可执行文件**构建前端，**Python 3.8**（系统 `python3`）虚拟环境安装后端依赖，启动命令与脚本部署一致（`python -m backend.run`，默认端口 **8000**，可由环境变量 **`PORT`** 覆盖）。
 
 **Ubuntu apt 源**：与同事实体部署方式一致，使用仓库内 **`docker/sources.list`**，构建时复制为镜像内的 `/etc/apt/sources.list`。默认内容为 **Ubuntu 20.04（focal）** 在内网镜像上的常见写法（示例主机为 `his-mirrors.huawei.com`）；若你司使用其他镜像地址，**直接修改该文件**即可，无需改 Dockerfile。注意官方发行版名为 **`focal-updates`**（带字母 **s**），不要写成 `focal-update`。
 
@@ -408,6 +421,8 @@ docker run --rm -p 8000:8000 \
   -e SECRET_KEY='请替换' \
   dt-report:local
 ```
+
+对外使用 **80** 而进程仍监听 **8000** 时，可映射 `-p 80:8000`，一般无需改镜像内 `PORT`。
 
 **说明**：WeLink 一键通知依赖 **Playwright Chromium**。`Dockerfile` 已在构建阶段执行 **`python -m playwright install-deps chromium`** 与 **`python -m playwright install chromium`**，镜像体积会明显增大。下载浏览器通常需访问 **Playwright 官方 CDN（公网）**；无直连时需 **`HTTP_PROXY`/`HTTPS_PROXY`**，且 **`NO_PROXY`** 中除内网镜像域名外，需保留代理能访问的公网主机规则（按你们网络策略配置）。若 pip 在代理开启时卡住，优先检查 **`NO_PROXY` 是否包含内网 PyPI 主机名**。
 

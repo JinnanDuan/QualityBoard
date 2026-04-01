@@ -36,4 +36,4 @@ echo "[3/3] 启动后端..."
 
 echo ""
 echo "====== 部署完成 ======"
-echo "访问地址: http://$(hostname -I | awk '{print $1}'):8000"
+echo "访问地址: http://$(hostname -I | awk '{print $1}'):${PORT:-8000}"

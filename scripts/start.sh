@@ -5,7 +5,9 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PID_FILE="$PROJECT_DIR/.pid"
 # 应用日志仅由 Python logging 写入项目根目录 app.log；勿再将进程 stdout 重定向到 app.log，否则会与 FileHandler 重复写同一文件。
 NOHUP_LOG="$PROJECT_DIR/nohup.out"
-PORT=8000
+# 监听端口：默认 8000；改为 80 等请 export PORT=80（见 backend/run.py）
+PORT="${PORT:-8000}"
+export PORT
 
 if [ -f "$PID_FILE" ]; then
     OLD_PID=$(cat "$PID_FILE")
