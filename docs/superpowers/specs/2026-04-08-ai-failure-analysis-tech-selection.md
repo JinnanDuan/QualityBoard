@@ -1,0 +1,442 @@
+# AI 辅助失败原因分析 — 技术选型
+
+- **文档类型**：技术选型（Tech Selection）
+- **关联文档**：同目录下的 `2026-04-08-ai-failure-analysis-architecture.md`（架构设计）
+- **状态**：Draft（待评审）
+- **作者**：AI 助手 × djn
+- **日期**：2026-04-08
+
+---
+
+## 0. 文档目的与边界
+
+架构设计文档回答**"系统怎么组织、组件怎么交互"**，本文档回答**"每一处具体用哪个库、哪个模型、哪个协议"**以及**"为什么不用它的竞品"**。
+
+两份文档严格分离：
+- **架构文档**里凡是涉及具体技术名的地方，本文档都要给出**选型理由**和**备选**。
+- 本文档不重复架构细节；看到"为什么 Agent 要分三阶段"之类问题请回查架构文档。
+
+---
+
+## 1. 总原则
+
+所有选型决策遵循以下优先级（从高到低）：
+
+1. **与 dt-report 现有栈尽量一致** —— 降低团队认知负担
+2. **OpenAI 兼容协议优先** —— 让 LLM 厂商切换零代码改动
+3. **官方异步驱动** —— AIFA 全栈 async，不允许同步阻塞
+4. **最小依赖原则** —— 能不装的库不装；尤其避免引入重量级运行时
+5. **可替换性** —— 所有外部依赖走抽象层（Protocol/Client），换实现只改 env 不改代码
+
+---
+
+## 2. 后端语言与框架
+
+### 2.1 Python 版本
+**选择：Python 3.11**
+
+| 候选 | 决策 | 理由 |
+|---|---|---|
+| Python 3.8 | ✘ | dt-report 当前用 3.8，但 AIFA 是独立进程，不必与 dt-report 版本绑死 |
+| **Python 3.11** | ✓ | async 性能大幅改进、PEP 657 错误定位更好、`typing` 支持更完整（`Self`、`TypeGuard`、`Protocol` 默认更稳定） |
+| Python 3.12 | ✘ | 过新，第三方库（尤其 motor / openai sdk）兼容窗口更窄 |
+
+**备注**：AIFA 独立进程决策（架构 ADR-01）让我们可以自由选版本。Dockerfile 里锁死 `python:3.11-slim`。
+
+### 2.2 Web 框架
+**选择：FastAPI + Uvicorn**
+
+| 候选 | 决策 | 理由 |
+|---|---|---|
+| **FastAPI** | ✓ | 与 dt-report 完全一致；原生 async；pydantic v2 校验；SSE 支持简洁 |
+| Starlette 裸用 | ✘ | 省掉的价值小，失去 pydantic schema 校验 |
+| Flask | ✘ | 非 async，不符合原则 3 |
+| Quart | ✘ | 非主流，团队不熟 |
+
+### 2.3 pydantic 版本
+**选择：pydantic v2**（与 dt-report 一致，避免团队同时维护两个版本）
+
+---
+
+## 3. LLM 接入协议
+
+### 3.1 协议选择
+**选择：OpenAI 兼容协议（Chat Completions API + Function Calling）**
+
+| 候选 | 决策 | 理由 |
+|---|---|---|
+| **OpenAI 兼容协议** | ✓ | GLM / Kimi / MiniMax / DeepSeek 全部原生支持；切换只改 `base_url` + `api_key` + 模型名，代码零改动；function-calling 是行业事实标准 |
+| ZhipuAI 官方 SDK | ✘ | 绑定单厂商；未来换模型要重写 agent 层 |
+| LangChain | ✘ | 过度抽象、版本不稳定、依赖膨胀严重、对 function-calling 的封装反而制造麻烦 |
+| LiteLLM | △ | 思路正确（多厂商代理），但增加一层依赖；我们自己抽 `LLMClient` Protocol 就够了，没必要引入 |
+| 自研 HTTP 直写 | ✘ | function-calling 的消息结构、tool_choice、JSON mode 等细节容易写错 |
+
+### 3.2 LLM 客户端库
+**选择：`openai` 官方 Python SDK**
+
+```python
+from openai import AsyncOpenAI
+client = AsyncOpenAI(
+    api_key=settings.AIFA_LLM_API_KEY,
+    base_url=settings.AIFA_LLM_BASE_URL,  # 指向 ZhipuAI 的兼容端点
+)
+```
+
+**理由**：
+- 官方库维护活跃，function-calling / JSON mode / streaming 支持完整
+- `AsyncOpenAI` 是 async
+- 大多数国产厂商都保证"调 openai sdk + 自家 base_url 即可跑通"
+- 将来想换自写 `httpx` 调用也容易（只有一个文件依赖它）
+
+### 3.3 版本锁定
+在 `requirements.txt` 里明确锁死小版本（例如 `openai==1.54.0`），防止 breaking change 悄然引入。
+
+---
+
+## 4. 模型选择
+
+### 4.1 起步策略
+**选择：只用一家厂商的现役旗舰 + 视觉模型。**
+
+按用户选择 "一开始只用一家（比如只用 GLM）"，默认配置为 ZhipuAI GLM 系列：
+
+| 用途 | 当前推荐（2026-04） | env key |
+|---|---|---|
+| 文本推理（Plan / Skill / Synthesize） | GLM 系列文本旗舰模型 | `AIFA_LLM_TEXT_MODEL` |
+| 视觉分析（screenshot_skill） | GLM 系列视觉模型 | `AIFA_LLM_VISION_MODEL` |
+
+**具体模型名写在 env 而不是代码里**，便于随厂商迭代切换（GLM-4-Plus → GLM-4.5 → GLM-5 等）。
+
+### 4.2 关键模型能力要求
+AIFA 依赖以下模型能力，**任何候选模型都必须同时满足**：
+
+| 能力 | 是否必需 | 说明 |
+|---|---|---|
+| Function Calling | **必需** | Tool 调用的基础；没有此能力整个 Agent 设计无法运行 |
+| JSON Mode / Structured Output | **必需** | Plan 阶段约束输出；Synthesize 阶段约束 report schema |
+| 长上下文（≥ 32K tokens） | **必需** | Skill 的日志/diff 摘要合并可能超过 8K |
+| 视觉理解（多模态） | **必需**（视觉模型） | 截图理解；若厂商无视觉模型则降级：screenshot_skill 返回 unknown |
+| Streaming | **推荐** | SSE 体验更好，但不强求 |
+
+### 4.3 备选厂商（未来替换路径）
+
+| 厂商 | OpenAI 兼容 | 备注 |
+|---|---|---|
+| ZhipuAI / GLM | ✓ | 初期默认 |
+| Moonshot / Kimi | ✓ | 长上下文优势；function-calling 支持完整 |
+| MiniMax | ✓ | 多模态表现不错 |
+| DeepSeek | ✓ | 推理强、价格低，但视觉覆盖相对滞后 |
+| 阿里通义千问 | ✓ | 稳定性好，可作 fallback |
+| 字节豆包 | ✓ | 备选 |
+
+**切换成本**：只改以下 env（零代码改动）：
+```
+AIFA_LLM_API_KEY
+AIFA_LLM_BASE_URL
+AIFA_LLM_TEXT_MODEL
+AIFA_LLM_VISION_MODEL
+```
+
+### 4.4 模型能力回归
+
+- 所有 prompt 放 git 管理
+- 后续若发现某个模型上 prompt 表现退化，走 A/B 对比：保留上线的 prompt + 候选 prompt，对同一份输入跑两遍，人工打分
+- **不做运行时热更新 prompt**（架构 ADR-18）
+
+---
+
+## 5. HTTP 客户端
+
+**选择：`httpx`**
+
+| 候选 | 决策 | 理由 |
+|---|---|---|
+| **httpx** | ✓ | 与 dt-report 一致（WeLink 集成用的就是它）；原生 async；支持 HTTP/2；连接池管理成熟 |
+| aiohttp | ✘ | 非 dt-report 栈；团队要额外学习 |
+| requests + anyio 桥接 | ✘ | 同步库强转 async 是反模式 |
+
+**复用策略**：
+- AIFA 启动时建立**单例** `httpx.AsyncClient`，所有 tool（`fetch_log_html` / `fetch_screenshot_b64` / `codehub_*`）共享
+- 针对外部调用打 timeout（架构 §8 定义）
+- 不复用 dt-report 的 httpx client 实例（跨进程，无意义）
+
+---
+
+## 6. HTML 解析
+
+**选择：`selectolax`**
+
+| 候选 | 决策 | 理由 |
+|---|---|---|
+| **selectolax** | ✓ | 基于 Modest / lexbor 引擎，比 BeautifulSoup 快 10 倍+，专为大 HTML 取正文优化 |
+| BeautifulSoup4 | △ | 功能更全但慢；我们只要 `body` 纯文本，不需要 BS4 的 DOM 操作 |
+| lxml | △ | 也快，但 API 更啰嗦；selectolax 封装更直观 |
+| 正则直接抽 | ✘ | 上游 HTML 结构变化风险高，正则维护成本大 |
+| Playwright/Headless browser | ✘ | 过度方案，日志 HTML 不需要 JS 执行；会重新引入 Playwright 依赖 |
+
+**典型用法**：
+```python
+from selectolax.parser import HTMLParser
+tree = HTMLParser(html)
+text = tree.css_first("body").text(separator="\n", strip=True)
+```
+
+---
+
+## 7. MongoDB 驱动
+
+**选择：`motor`**
+
+| 候选 | 决策 | 理由 |
+|---|---|---|
+| **motor** | ✓ | MongoDB 官方 async 驱动；与 `pymongo` 同宗，API 熟悉度高 |
+| pymongo | ✘ | 同步驱动，违反原则 3 |
+| beanie / odmantic | ✘ | ORM 层过度抽象；AIFA 只做只读 `find`，不需要 schema 定义 |
+
+**使用约束**：
+- 只用 `find`，不用 `aggregate` / `mapReduce`（降低权限要求、减少对 Mongo 集群压力）
+- 启动时建单例 `AsyncIOMotorClient`，连接池 10
+- 只读用户（架构 §8.2）
+
+### 7.1 字段映射配置
+因为 AIFA 不控制 Mongo schema，所有字段名走 env（架构 §8.2）。不把字段名硬编码到代码里。
+
+---
+
+## 8. 代码仓库客户端
+
+### 8.1 初期实现
+**选择：自写 `httpx` 客户端 + `CodeRepoClient` Protocol 抽象**
+
+| 候选 | 决策 | 理由 |
+|---|---|---|
+| **自写 httpx 客户端** | ✓ | CodeHub 是非主流服务，无现成 SDK；逻辑简单（只用 2 个 API：list_commits、get_diff） |
+| `python-gitlab` | ✘ | CodeHub 不兼容 GitLab API schema（用户备注"类似 GitLab 但不是"） |
+| `PyGithub` | ✘ | 同上 |
+| 本地 `git clone` + `git log/show` | ✘ | 初期评估已否决：clone 慢、磁盘占用大、分支管理复杂 |
+
+### 8.2 抽象层设计
+```python
+# clients/code_repo/__init__.py
+class CodeRepoClient(Protocol):
+    async def list_commits(
+        self, repo_url: str, branch: str,
+        since: str, until: str,
+        path_filters: list[str] | None = None,
+        limit: int = 30
+    ) -> dict: ...
+
+    async def get_commit_diff(
+        self, repo_url: str, sha: str, max_lines: int = 500
+    ) -> dict: ...
+
+# clients/code_repo/codehub.py
+class CodeHubClient(CodeRepoClient):
+    # 初期唯一实现
+    ...
+```
+
+**未来扩展**：新增 `gitlab.py` / `gitea.py` 等实现；通过 env `AIFA_CODE_REPO_PROVIDER` 注入。
+
+**注意**：具体的 CodeHub API 细节（endpoint 路径、认证 header 名、响应 schema）在实现阶段对照其文档确认后补入。本选型只保证"用 httpx + Protocol 抽象"的基础决策不会被推翻。
+
+---
+
+## 9. 配置管理
+
+**选择：`pydantic-settings`（与 dt-report 一致）**
+
+| 候选 | 决策 | 理由 |
+|---|---|---|
+| **pydantic-settings** | ✓ | dt-report `backend/core/config.py` 已用；团队熟；类型安全 |
+| python-dotenv 裸用 | ✘ | 无类型、无校验 |
+| dynaconf | ✘ | 功能过剩，引入新学习成本 |
+
+**约定**：所有 env 以 `AIFA_` 为前缀（架构 §12.1），严格与 dt-report 的 env 隔离。
+
+---
+
+## 10. 日志与观测
+
+### 10.1 日志框架
+**选择：Python 标准库 `logging` + `dictConfig`（与 dt-report 一致）**
+
+| 候选 | 决策 | 理由 |
+|---|---|---|
+| **stdlib logging + dictConfig** | ✓ | dt-report 已用（`backend/logging_config.py`）；零额外依赖；双文件滚动 `app.log` + `access.log` 形态可复制 |
+| structlog | △ | 功能更强但增加学习成本；我们只要"文件 + 结构化字段"用 stdlib 就够 |
+| loguru | ✘ | 非主流，与 dt-report 不一致 |
+
+### 10.2 Trace/指标
+**选择：自写 JSONL trace 文件 + `/metrics` JSON 端点**
+
+| 候选 | 决策 | 理由 |
+|---|---|---|
+| **自写 JSONL trace** | ✓ | 轻；未来接 ELK/ClickHouse 只需改 sink |
+| prometheus-client | ✘ | 引入新依赖；当前无 Prometheus 基础设施 |
+| OpenTelemetry | ✘ | 过度方案 |
+
+未来接 Prometheus：加一个 `/metrics/prom` adapter，不改主接口（架构 §11.5）。
+
+---
+
+## 11. Session 存储
+
+**选择：内存 LRU（`cachetools.TTLCache` 或自写）+ `SessionStore` Protocol**
+
+| 候选 | 决策 | 理由 |
+|---|---|---|
+| **内存 TTLCache** | ✓ | 单副本部署够用；无外部依赖 |
+| Redis | ✘ | 初期无必要；未来扩副本时替换 Protocol 实现 |
+| SQLite / 本地文件 | ✘ | 持久化价值低（session 30 分钟就过期） |
+
+**实现库**：`cachetools`（单文件轻量，社区稳定）。如果想零依赖，也可以 20 行手写一个 LRU+TTL。实现阶段决定即可。
+
+---
+
+## 12. 错误 / 异常处理
+
+**选择：FastAPI exception handler + 结构化错误 schema（沿用 dt-report 风格）**
+
+- Tool 层返回 `{error, detail}` 而非 raise（架构 §6.3）
+- FastAPI 顶层异常 handler 转成 SSE `event: error`
+- 用 `traceback.format_exc()` 仅落 `aifa_app.log`，不返回给前端
+
+---
+
+## 13. 测试依赖
+
+| 用途 | 选择 | 理由 |
+|---|---|---|
+| 测试框架 | **pytest + pytest-asyncio** | 与 dt-report 一致 |
+| HTTP mock | **pytest-httpx** | httpx 官方配套 |
+| Mongo mock | **mongomock-motor** | motor 配套；不必起真 Mongo |
+| LLM mock | 自写 fake client（实现 `LLMClient` Protocol） | 真实 LLM 调用不可用于单元测试 |
+| 覆盖率 | **pytest-cov** | 标配 |
+
+**集成测试**：额外提供 docker-compose.test.yml，拉起真 Mongo + mock CodeHub + mock LLM gateway 做端到端。
+
+---
+
+## 14. 前端依赖增量
+
+dt-report 前端已有 React 18 / TypeScript / Ant Design 5 / Axios。本特性**不引入任何新依赖**。
+
+| 需求 | 实现方式 | 说明 |
+|---|---|---|
+| SSE 客户端 | 浏览器原生 `EventSource` | 零依赖；所有现代浏览器支持 |
+| UUID 生成 | 浏览器原生 `crypto.randomUUID()` | 零依赖 |
+| Markdown 渲染（如果需要） | **不需要** —— 报告是结构化 schema，不是 markdown | 见架构 §9.4 |
+| 代码高亮（如 diff 片段） | Ant Design 已内置 `Typography` + 自定义 CSS | 如果真要做 diff 高亮再引入 `react-syntax-highlighter` |
+
+**原则**：结构化数据 > 自由文本 + markdown 渲染。前端严格按 schema 字段排版。
+
+---
+
+## 15. 完整依赖清单
+
+### 15.1 `ai-failure-analyzer/requirements.txt`
+
+```
+# Web 框架
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pydantic==2.9.0
+pydantic-settings==2.5.0
+
+# HTTP
+httpx==0.27.0
+
+# HTML 解析
+selectolax==0.3.21
+
+# MongoDB
+motor==3.5.1
+
+# LLM
+openai==1.54.0
+
+# Session
+cachetools==5.5.0
+
+# 测试
+pytest==8.3.0
+pytest-asyncio==0.24.0
+pytest-httpx==0.32.0
+mongomock-motor==0.0.33
+pytest-cov==5.0.0
+```
+
+**版本策略**：
+- 所有库**锁死小版本**（`==`），避免 breaking change 悄然引入
+- 每季度做一次主动升级并跑完整测试
+- 升级 `openai` 时特别关注 function-calling / JSON mode 的 API 变动
+
+### 15.2 dt-report 侧需要新增的依赖
+
+**无**。dt-report 侧的 `ai_proxy` 使用现有 `httpx`，没有新依赖。
+
+---
+
+## 16. 未选型但已预留抽象的部分
+
+这些部分当前版本**不做决策**，但架构已经留好接口，未来需要时只改 env 或加一个实现文件：
+
+| 点 | 预留抽象 | 未来选项 |
+|---|---|---|
+| 代码仓库 | `CodeRepoClient` Protocol | CodeHub（初期）/ GitLab / Gitea / 本地 git |
+| Session 存储 | `SessionStore` Protocol | 内存（初期）/ Redis / Memcached |
+| 成本告警 | `CostAlertSink` Protocol | 无（初期）/ WeLink / 邮件 |
+| 指标端点格式 | `/metrics` JSON（初期） | 未来加 `/metrics/prom` adapter |
+| LLM 厂商 | OpenAI 兼容协议 | GLM（初期）/ Kimi / MiniMax / DeepSeek / 自建网关 |
+
+---
+
+## 17. 选型影响评估
+
+### 17.1 对 dt-report 的影响
+**几乎零影响**：
+- 后端：新增 2 个薄文件（`ai_proxy.py` + `ai_context_builder.py`），不动现有 service
+- 前端：新增独立目录 `ai_analysis/`，`HistoryPage.tsx` 仅需加一行挂 Tab
+- 依赖：**无新增**
+- 部署：docker-compose 新增一个 service
+- 数据库：**零变更**
+
+### 17.2 对运维的影响
+- 需要运维额外维护：
+  - 一个 Docker 镜像的构建/发布
+  - 一套 `AIFA_*` env 的管理（尤其 API key 与 token）
+  - 一个内网地址与防火墙规则
+  - Mongo 只读账号的申请
+  - CodeHub service token 的申请
+
+### 17.3 对成本的影响
+- **新增现金成本**：LLM 调用费（按 SLO 目标 ≤ 0.5 元/请求估算，按日请求量乘积预估月开销）
+- **硬上限熔断**：`AIFA_MAX_TOKENS_PER_REQUEST` 防单次失控
+- **并发上限熔断**：`AIFA_MAX_CONCURRENT_ANALYSES` 防瞬时爆发
+- **用户侧速率限制**：dt-report `ai_proxy` 对同一用户限流（每分钟 ≤10、每小时 ≤50）
+
+---
+
+## 18. 选型验收清单
+
+实现阶段对照核对：
+
+- [ ] Python 3.11-slim 镜像
+- [ ] FastAPI + Uvicorn + pydantic v2
+- [ ] 所有 env 经 `pydantic-settings` 加载，前缀 `AIFA_`
+- [ ] httpx 单例 AsyncClient 全局共享
+- [ ] selectolax 处理 HTML 日志
+- [ ] motor 单例 `AsyncIOMotorClient`
+- [ ] `openai` SDK（`AsyncOpenAI`）+ `base_url` 指向 ZhipuAI
+- [ ] 文本/视觉模型名完全从 env 读取
+- [ ] `CodeRepoClient` Protocol 存在；初期仅实现 `CodeHubClient`
+- [ ] `SessionStore` Protocol 存在；初期仅实现内存 LRU
+- [ ] `LLMClient` Protocol 存在（隔离 openai sdk，便于 mock 和未来替换）
+- [ ] Stdlib logging + dictConfig 双文件配置
+- [ ] Trace JSONL 文件 + `/metrics` JSON 端点
+- [ ] 所有依赖在 `requirements.txt` 锁死 `==` 小版本
+- [ ] 前端零新增依赖（只用原生 EventSource + crypto.randomUUID）
+- [ ] `HistoryPage.tsx` 改动 ≤ 1 行
+- [ ] docker-compose 可拉起 dt-report + AIFA 两个 service
+- [ ] docker-compose.test.yml 可跑端到端测试（含 mock Mongo/CodeHub/LLM）
