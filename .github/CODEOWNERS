@@ -1,0 +1,2 @@
+# .github 下配置（工作流、规则集、本文件等）的变更需由 Code Owner 评审（与分支规则 require_code_owner_review 配合）
+.github/ @JinnanDuan
