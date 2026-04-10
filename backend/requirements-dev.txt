@@ -1,0 +1,4 @@
+# 仅开发与 CI 使用，生产镜像勿安装
+pytest==7.4.4
+pytest-asyncio==0.23.8
+ruff==0.6.9
