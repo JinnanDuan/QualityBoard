@@ -21,7 +21,9 @@ frontend/.vite/
 
 # IDE
 .idea/
-.vscode/
+# 共享工作区设置（如 Markdown 不自动格式化）；其余 .vscode 文件保持本地
+.vscode/*
+!.vscode/settings.json
 *.swp
 *.swo
 *~
