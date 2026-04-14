@@ -31,7 +31,7 @@
 
 1. 从 `pipeline_overview` 取 **`batch`** 的最近 **N** 个不重复值；
 2. `batch IS NOT NULL`，`batch LIKE '20%'`，`DISTINCT`，`ORDER BY batch DESC`，`LIMIT N`；
-3. **N = 20**（History 为 30，字段为 `start_time`）；
+3. **N = 30**（与 History 未选批次时注入批次数一致；字段分别为 `batch` / `start_time`）；
 4. 将结果注入为 `batch IN (...)`，与用户其它条件 AND 组合。
 
 **不触发**：用户已选 `batch`（非空列表）时，不注入。
@@ -104,7 +104,7 @@
 
 - **A**：新标签页打开 **`/overview/subtask-executions?subtask=<encodeURIComponent(subtask)>`**  
   - 仅展示该 **分组** 在 **所有轮次** 的 `pipeline_overview` 行。  
-  - 对应列表请求：`GET /api/v1/overview?all_batches=true&subtask=...`（及分页等），**不得**注入 §3 的「最近 20 批」。
+  - 对应列表请求：`GET /api/v1/overview?all_batches=true&subtask=...`（及分页等），**不得**注入 §3 的「最近 30 批」。
 - **B**：新标签页打开 **`/history?start_time=<encodeURIComponent(当前行 batch)>&subtask=<encodeURIComponent(subtask)>`**  
   - 同批同组的用例明细。
 
@@ -113,7 +113,7 @@
 ### 6.4 URL 与 placeholder
 
 - 主列表筛选条件与分页、排序与 **URL Query** 同步（对齐 `HistoryPage` 模式：`replace`、省略默认值）。
-- 批次 Select **placeholder**：「不选则默认最近20批」（与 spec/08 前端规约对称）。
+- 批次 Select **placeholder**：「不选则默认最近30批」（与 History 批次 placeholder、spec/08 对称）。
 
 ### 6.5 错误处理
 
@@ -136,4 +136,5 @@ Python 3.8：`Optional[]` 标注；日志遵守 `docs/06_logging_guide.md`（关
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
-| 1.0 | 2026-04-11 | 初版：默认 20 批注入、排序、筛选、外链、batch/subtask 链与 Modal、subtask 专用页与 `all_batches` |
+| 1.0 | 2026-04-11 | 初版：默认批次注入、排序、筛选、外链、batch/subtask 链与 Modal、subtask 专用页与 `all_batches` |
+| 1.1 | 2026-04-11 | 默认注入 N 由 20 调整为 **30**，与详细执行历史一致 |

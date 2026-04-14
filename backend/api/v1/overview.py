@@ -38,7 +38,7 @@ async def get_overview_list(
     result: Optional[List[str]] = Query(None),
     sort_field: Optional[str] = Query(None),
     sort_order: Optional[str] = Query(None),
-    all_batches: bool = Query(False, description="为 true 时不注入默认最近20批；须配合 subtask"),
+    all_batches: bool = Query(False, description="为 true 时不注入默认最近30批；须配合 subtask"),
     db: AsyncSession = Depends(get_db),
 ):
     if all_batches and not _nonempty_subtask(subtask):

@@ -9,7 +9,7 @@ from backend.schemas.overview import OverviewFilterOptions, OverviewQuery
 
 po = PipelineOverview
 
-DEFAULT_OVERVIEW_BATCH_LIMIT = 20
+DEFAULT_OVERVIEW_BATCH_LIMIT = 30
 
 ALLOWED_SORT_FIELDS = {
     "batch",
@@ -31,7 +31,7 @@ async def list_overview(
 ) -> Tuple[List[PipelineOverview], int]:
     """
     分组执行历史列表：单表 pipeline_overview。
-    未选 batch 且非 all_batches 模式时注入最近 20 个不重复 batch（spec/14）。
+    未选 batch 且非 all_batches 模式时注入最近 30 个不重复 batch（spec/14，与 History 批次数一致）。
     """
     eff = query
     if not query.all_batches and not query.batch:
