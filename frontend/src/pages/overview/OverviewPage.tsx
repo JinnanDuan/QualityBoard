@@ -128,6 +128,9 @@ const SORTABLE: Record<string, boolean> = {
   created_at: true,
 };
 
+/** 与 History 一致：表头 + 底部分页（含每页条数）预留高度，用于计算 Table `scroll.y` */
+const OVERVIEW_TABLE_SCROLL_RESERVE_PX = 118;
+
 export default function OverviewPage({
   variant = "default",
 }: {
@@ -146,6 +149,9 @@ export default function OverviewPage({
     "all-batches",
   );
   const subtaskInvalidWarnedRef = useRef(false);
+  /** 表格区域高度（与 history-table.css 中 flex 布局配合，必须设置 scroll.y 否则表体无限增高、分页被 overflow:hidden 裁掉） */
+  const tableAreaRef = useRef<HTMLDivElement>(null);
+  const [tableScrollY, setTableScrollY] = useState(300);
 
   const lockedSubtask = variant === "subtask-all-batches" ? searchParams.get("subtask") : null;
   const lockedSubtaskTrimmed = lockedSubtask?.trim() || null;
@@ -240,6 +246,19 @@ export default function OverviewPage({
 
   useEffect(() => {
     fetchOptions();
+  }, []);
+
+  useEffect(() => {
+    const el = tableAreaRef.current;
+    if (!el) return;
+    const update = () => {
+      const h = el.getBoundingClientRect().height;
+      setTableScrollY(Math.max(120, Math.floor(h - OVERVIEW_TABLE_SCROLL_RESERVE_PX)));
+    };
+    update();
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   useEffect(() => {
@@ -713,7 +732,7 @@ export default function OverviewPage({
         </Row>
       </Form>
 
-      <div className="history-page-table-area">
+      <div ref={tableAreaRef} className="history-page-table-area">
         <Table<OverviewItem>
           rowKey="id"
           loading={loading}
@@ -734,7 +753,7 @@ export default function OverviewPage({
             disabled: loading,
           }}
           onChange={handleTableChange}
-          scroll={{ x: totalWidth }}
+          scroll={{ x: totalWidth, y: tableScrollY }}
         />
       </div>
 
