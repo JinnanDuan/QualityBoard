@@ -49,6 +49,10 @@ export default function AppRoutes() {
       children: [
         { index: true, element: <DashboardPage /> },
         { path: "overview", element: <OverviewPage /> },
+        {
+          path: "overview/subtask-executions",
+          element: <OverviewPage variant="subtask-all-batches" />,
+        },
         { path: "history", element: <HistoryPage /> },
         { path: "history/case-executions", element: <CaseExecutionsHistoryPage /> },
         {

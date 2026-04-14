@@ -311,3 +311,75 @@ export const dashboardApi = {
       params: { limit, code_branch: codeBranch },
     }) as Promise<{ items: BatchTrendItem[] }>,
 };
+
+// --- Overview（分组执行历史，pipeline_overview，spec/14）---
+
+export interface OverviewItem {
+  id: number;
+  batch: string | null;
+  subtask: string | null;
+  result: string | null;
+  case_num: string | null;
+  batch_start: string | null;
+  batch_end: string | null;
+  reports_url: string | null;
+  log_url: string | null;
+  screenshot_url: string | null;
+  pipeline_url: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  passed_num: number | null;
+  failed_num: number | null;
+  platform: string | null;
+  code_branch: string | null;
+}
+
+export interface OverviewQueryParams {
+  page?: number;
+  page_size?: number;
+  batch?: string[];
+  subtask?: string[];
+  platform?: string[];
+  code_branch?: string[];
+  result?: string[];
+  sort_field?: string;
+  sort_order?: string;
+  /** 为 true 时不注入默认最近 20 批；须带 subtask（专用分组页） */
+  all_batches?: boolean;
+}
+
+export interface OverviewFilterOptions {
+  batch: string[];
+  subtask: string[];
+  platform: string[];
+  code_branch: string[];
+  result: string[];
+}
+
+function overviewToSearchParams(params?: OverviewQueryParams): URLSearchParams {
+  const p = new URLSearchParams();
+  if (!params) return p;
+  p.set("page", String(params.page ?? 1));
+  p.set("page_size", String(params.page_size ?? 20));
+  const appendList = (key: string, vals?: string[]) => {
+    if (vals?.length) vals.forEach((v) => p.append(key, v));
+  };
+  appendList("batch", params.batch);
+  appendList("subtask", params.subtask);
+  appendList("platform", params.platform);
+  appendList("code_branch", params.code_branch);
+  appendList("result", params.result);
+  if (params.sort_field) p.set("sort_field", params.sort_field);
+  if (params.sort_order) p.set("sort_order", params.sort_order);
+  if (params.all_batches) p.set("all_batches", "true");
+  return p;
+}
+
+export const overviewApi = {
+  list(params?: OverviewQueryParams): Promise<PageResponse<OverviewItem>> {
+    return request.get("/overview", { params: overviewToSearchParams(params) }) as any;
+  },
+  options(): Promise<OverviewFilterOptions> {
+    return request.get("/overview/options") as any;
+  },
+};
