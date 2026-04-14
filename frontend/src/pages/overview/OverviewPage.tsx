@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Resizable } from "react-resizable";
+import "react-resizable/css/styles.css";
+import "../history/history-table.css";
 import {
   Alert,
   Button,
@@ -66,6 +69,51 @@ function historyBatchHref(batch: string | null | undefined): string {
   return `/history?${q.toString()}`;
 }
 
+function ResizableTitle(
+  props: React.HTMLAttributes<HTMLTableHeaderCellElement> & {
+    onResize?: (e: React.SyntheticEvent, data: { size: { width: number; height: number } }) => void;
+    width?: number;
+  },
+) {
+  const { onResize, width, ...restProps } = props;
+  if (!width || !onResize) return <th {...restProps} />;
+  return (
+    <Resizable
+      width={width}
+      height={0}
+      axis="x"
+      resizeHandles={["e"]}
+      handle={
+        <span
+          className="react-resizable-handle"
+          onClick={(e) => e.stopPropagation()}
+        />
+      }
+      onResize={onResize}
+      draggableOpts={{ enableUserSelectHack: false }}
+    >
+      <th {...restProps} style={{ ...restProps.style, width }} />
+    </Resizable>
+  );
+}
+
+const DEFAULT_WIDTHS: Record<string, number> = {
+  batch: 120,
+  subtask: 120,
+  result: 100,
+  case_num: 90,
+  passed_num: 80,
+  failed_num: 80,
+  batch_start: 160,
+  batch_end: 160,
+  platform: 100,
+  code_branch: 110,
+  reports_url: 88,
+  log_url: 72,
+  pipeline_url: 88,
+  created_at: 160,
+};
+
 const SORTABLE: Record<string, boolean> = {
   batch: true,
   subtask: true,
@@ -92,7 +140,7 @@ export default function OverviewPage({
   const [loading, setLoading] = useState(false);
   const [options, setOptions] = useState<OverviewFilterOptions | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(false);
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 20 });
+  const [colWidths, setColWidths] = useState<Record<string, number>>(DEFAULT_WIDTHS);
   const [subtaskModalRow, setSubtaskModalRow] = useState<OverviewItem | null>(null);
   const [subtaskChoice, setSubtaskChoice] = useState<"all-batches" | "same-batch">(
     "all-batches",
@@ -227,7 +275,6 @@ export default function OverviewPage({
       code_branch: params.code_branch,
       result: params.result,
     });
-    setPagination({ current: params.page ?? 1, pageSize: params.page_size ?? 20 });
   }, [searchParams, variant, lockedSubtaskTrimmed, form, paramsFromUrl]);
 
   useEffect(() => {
@@ -244,36 +291,38 @@ export default function OverviewPage({
 
   const handleFilterChange = () => {
     const values = form.getFieldsValue();
+    const cur = paramsFromUrl();
     const params: OverviewQueryParams = {
       page: 1,
-      page_size: pagination.pageSize,
+      page_size: cur.page_size ?? 20,
       batch: values.batch?.length ? values.batch : undefined,
       subtask:
         variant === "default" && values.subtask?.length ? values.subtask : undefined,
       platform: values.platform?.length ? values.platform : undefined,
       code_branch: values.code_branch?.length ? values.code_branch : undefined,
       result: values.result?.length ? values.result : undefined,
+      sort_field: cur.sort_field,
+      sort_order: cur.sort_order,
     };
     if (variant === "subtask-all-batches" && lockedSubtaskTrimmed) {
       params.subtask = [lockedSubtaskTrimmed];
       params.all_batches = true;
     }
     syncParamsToUrl(params);
-    setPagination((p) => ({ ...p, current: 1 }));
   };
 
   const handleReset = () => {
+    const cur = paramsFromUrl();
     if (variant === "subtask-all-batches" && lockedSubtaskTrimmed) {
       syncParamsToUrl({
         page: 1,
-        page_size: pagination.pageSize,
+        page_size: cur.page_size ?? 20,
         subtask: [lockedSubtaskTrimmed],
         all_batches: true,
       });
     } else {
-      syncParamsToUrl({ page: 1, page_size: pagination.pageSize });
+      syncParamsToUrl({ page: 1, page_size: cur.page_size ?? 20 });
     }
-    setPagination((p) => ({ ...p, current: 1 }));
   };
 
   const handleTableChange = (
@@ -304,16 +353,28 @@ export default function OverviewPage({
       nextParams.all_batches = true;
     }
     syncParamsToUrl(nextParams);
-    setPagination({ current: pageToUse, pageSize: nextSize });
   };
 
-  const params = paramsFromUrl();
-  const sortOrderFor = (field: string) => {
-    if (params.sort_field !== field) return undefined;
-    if (params.sort_order === "asc") return "ascend" as const;
-    if (params.sort_order === "desc") return "descend" as const;
-    return undefined;
-  };
+  const handleResize = useCallback(
+    (key: string) =>
+      (_: React.SyntheticEvent, data: { size: { width: number; height: number } }) => {
+        setColWidths((prev) => ({ ...prev, [key]: data.size.width }));
+      },
+    [],
+  );
+
+  const urlQuery = paramsFromUrl();
+  const pageCurrent = urlQuery.page ?? 1;
+  const pageSize = urlQuery.page_size ?? 20;
+
+  const sortField = searchParams.get("sort_field") || undefined;
+  const sortOrderUrl =
+    searchParams.get("sort_order") === "asc"
+      ? "ascend"
+      : searchParams.get("sort_order") === "desc"
+        ? "descend"
+        : undefined;
+  const sortOrderFor = (field: string) => (field === sortField ? sortOrderUrl : undefined);
 
   const confirmSubtaskModal = () => {
     if (!subtaskModalRow) return;
@@ -332,154 +393,215 @@ export default function OverviewPage({
     setSubtaskModalRow(null);
   };
 
-  const columns: ColumnsType<OverviewItem> = [
-    {
-      title: "批次",
-      dataIndex: "batch",
-      width: 120,
-      ellipsis: true,
-      sorter: SORTABLE.batch,
-      sortOrder: sortOrderFor("batch"),
-      render: (val: string | null) =>
-        val ? (
-          <a
-            href={historyBatchHref(val)}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {val}
-          </a>
-        ) : (
-          "—"
-        ),
-    },
-    {
-      title: "分组",
-      dataIndex: "subtask",
-      width: 120,
-      ellipsis: true,
-      sorter: SORTABLE.subtask,
-      sortOrder: sortOrderFor("subtask"),
-      render: (val: string | null, record: OverviewItem) =>
-        val ? (
-          <Button
-            type="link"
-            size="small"
-            style={{ padding: 0, height: "auto" }}
-            onClick={(e) => {
-              e.stopPropagation();
-              setSubtaskChoice("all-batches");
-              setSubtaskModalRow(record);
-            }}
-          >
-            {val}
-          </Button>
-        ) : (
-          "—"
-        ),
-    },
-    {
-      title: "执行结果",
-      dataIndex: "result",
-      width: 100,
-      sorter: SORTABLE.result,
-      sortOrder: sortOrderFor("result"),
-      render: (val: string | null) => {
-        if (!val) return "—";
-        const color = val === "passed" ? "green" : val === "failed" ? "red" : "default";
-        return <Tag color={color}>{val}</Tag>;
+  const columns: ColumnsType<OverviewItem> = useMemo(
+    () => [
+      {
+        title: "批次",
+        dataIndex: "batch",
+        width: colWidths.batch,
+        ellipsis: true,
+        sorter: SORTABLE.batch,
+        sortOrder: sortOrderFor("batch"),
+        render: (val: string | null) =>
+          val ? (
+            <a
+              href={historyBatchHref(val)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {val}
+            </a>
+          ) : (
+            "—"
+          ),
+        onHeaderCell: () => ({
+          width: colWidths.batch,
+          onResize: handleResize("batch"),
+        }),
       },
-    },
-    {
-      title: "总用例数",
-      dataIndex: "case_num",
-      width: 90,
-      sorter: SORTABLE.case_num,
-      sortOrder: sortOrderFor("case_num"),
-    },
-    {
-      title: "通过数",
-      dataIndex: "passed_num",
-      width: 80,
-      sorter: SORTABLE.passed_num,
-      sortOrder: sortOrderFor("passed_num"),
-    },
-    {
-      title: "失败数",
-      dataIndex: "failed_num",
-      width: 80,
-      sorter: SORTABLE.failed_num,
-      sortOrder: sortOrderFor("failed_num"),
-    },
-    {
-      title: "开始时间",
-      dataIndex: "batch_start",
-      width: 160,
-      sorter: SORTABLE.batch_start,
-      sortOrder: sortOrderFor("batch_start"),
-      render: (v) => fmtDt(v),
-    },
-    {
-      title: "结束时间",
-      dataIndex: "batch_end",
-      width: 160,
-      sorter: SORTABLE.batch_end,
-      sortOrder: sortOrderFor("batch_end"),
-      render: (v) => fmtDt(v),
-    },
-    {
-      title: "平台",
-      dataIndex: "platform",
-      width: 100,
-      ellipsis: true,
-      sorter: SORTABLE.platform,
-      sortOrder: sortOrderFor("platform"),
-    },
-    {
-      title: "代码分支",
-      dataIndex: "code_branch",
-      width: 110,
-      ellipsis: true,
-      sorter: SORTABLE.code_branch,
-      sortOrder: sortOrderFor("code_branch"),
-    },
-    {
-      title: "测试报告",
-      dataIndex: "reports_url",
-      width: 88,
-      render: (v: string | null) => <UrlLink url={v} label="打开" />,
-    },
-    {
-      title: "日志",
-      dataIndex: "log_url",
-      width: 72,
-      render: (v: string | null) => <UrlLink url={v} label="打开" />,
-    },
-    {
-      title: "截图",
-      dataIndex: "screenshot_url",
-      width: 72,
-      render: (v: string | null) => <UrlLink url={v} label="打开" />,
-    },
-    {
-      title: "流水线",
-      dataIndex: "pipeline_url",
-      width: 88,
-      render: (v: string | null) => <UrlLink url={v} label="打开" />,
-    },
-    {
-      title: "创建时间",
-      dataIndex: "created_at",
-      width: 160,
-      sorter: SORTABLE.created_at,
-      sortOrder: sortOrderFor("created_at"),
-      render: (v) => fmtDt(v),
-    },
-  ];
+      {
+        title: "分组",
+        dataIndex: "subtask",
+        width: colWidths.subtask,
+        ellipsis: true,
+        sorter: SORTABLE.subtask,
+        sortOrder: sortOrderFor("subtask"),
+        render: (val: string | null, record: OverviewItem) =>
+          val ? (
+            <Button
+              type="link"
+              size="small"
+              style={{ padding: 0, height: "auto" }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSubtaskChoice("all-batches");
+                setSubtaskModalRow(record);
+              }}
+            >
+              {val}
+            </Button>
+          ) : (
+            "—"
+          ),
+        onHeaderCell: () => ({
+          width: colWidths.subtask,
+          onResize: handleResize("subtask"),
+        }),
+      },
+      {
+        title: "执行结果",
+        dataIndex: "result",
+        width: colWidths.result,
+        sorter: SORTABLE.result,
+        sortOrder: sortOrderFor("result"),
+        render: (val: string | null) => {
+          if (!val) return "—";
+          const color = val === "passed" ? "green" : val === "failed" ? "red" : "default";
+          return <Tag color={color}>{val}</Tag>;
+        },
+        onHeaderCell: () => ({
+          width: colWidths.result,
+          onResize: handleResize("result"),
+        }),
+      },
+      {
+        title: "总用例数",
+        dataIndex: "case_num",
+        width: colWidths.case_num,
+        sorter: SORTABLE.case_num,
+        sortOrder: sortOrderFor("case_num"),
+        onHeaderCell: () => ({
+          width: colWidths.case_num,
+          onResize: handleResize("case_num"),
+        }),
+      },
+      {
+        title: "通过数",
+        dataIndex: "passed_num",
+        width: colWidths.passed_num,
+        sorter: SORTABLE.passed_num,
+        sortOrder: sortOrderFor("passed_num"),
+        onHeaderCell: () => ({
+          width: colWidths.passed_num,
+          onResize: handleResize("passed_num"),
+        }),
+      },
+      {
+        title: "失败数",
+        dataIndex: "failed_num",
+        width: colWidths.failed_num,
+        sorter: SORTABLE.failed_num,
+        sortOrder: sortOrderFor("failed_num"),
+        onHeaderCell: () => ({
+          width: colWidths.failed_num,
+          onResize: handleResize("failed_num"),
+        }),
+      },
+      {
+        title: "开始时间",
+        dataIndex: "batch_start",
+        width: colWidths.batch_start,
+        sorter: SORTABLE.batch_start,
+        sortOrder: sortOrderFor("batch_start"),
+        render: (v) => fmtDt(v),
+        onHeaderCell: () => ({
+          width: colWidths.batch_start,
+          onResize: handleResize("batch_start"),
+        }),
+      },
+      {
+        title: "结束时间",
+        dataIndex: "batch_end",
+        width: colWidths.batch_end,
+        sorter: SORTABLE.batch_end,
+        sortOrder: sortOrderFor("batch_end"),
+        render: (v) => fmtDt(v),
+        onHeaderCell: () => ({
+          width: colWidths.batch_end,
+          onResize: handleResize("batch_end"),
+        }),
+      },
+      {
+        title: "平台",
+        dataIndex: "platform",
+        width: colWidths.platform,
+        ellipsis: true,
+        sorter: SORTABLE.platform,
+        sortOrder: sortOrderFor("platform"),
+        onHeaderCell: () => ({
+          width: colWidths.platform,
+          onResize: handleResize("platform"),
+        }),
+      },
+      {
+        title: "代码分支",
+        dataIndex: "code_branch",
+        width: colWidths.code_branch,
+        ellipsis: true,
+        sorter: SORTABLE.code_branch,
+        sortOrder: sortOrderFor("code_branch"),
+        onHeaderCell: () => ({
+          width: colWidths.code_branch,
+          onResize: handleResize("code_branch"),
+        }),
+      },
+      {
+        title: "测试报告",
+        dataIndex: "reports_url",
+        width: colWidths.reports_url,
+        render: (v: string | null) => <UrlLink url={v} label="打开" />,
+        onHeaderCell: () => ({
+          width: colWidths.reports_url,
+          onResize: handleResize("reports_url"),
+        }),
+      },
+      {
+        title: "日志",
+        dataIndex: "log_url",
+        width: colWidths.log_url,
+        render: (v: string | null) => <UrlLink url={v} label="打开" />,
+        onHeaderCell: () => ({
+          width: colWidths.log_url,
+          onResize: handleResize("log_url"),
+        }),
+      },
+      {
+        title: "流水线",
+        dataIndex: "pipeline_url",
+        width: colWidths.pipeline_url,
+        render: (v: string | null) => <UrlLink url={v} label="打开" />,
+        onHeaderCell: () => ({
+          width: colWidths.pipeline_url,
+          onResize: handleResize("pipeline_url"),
+        }),
+      },
+      {
+        title: "创建时间",
+        dataIndex: "created_at",
+        width: colWidths.created_at,
+        sorter: SORTABLE.created_at,
+        sortOrder: sortOrderFor("created_at"),
+        render: (v) => fmtDt(v),
+        onHeaderCell: () => ({
+          width: colWidths.created_at,
+          onResize: handleResize("created_at"),
+        }),
+      },
+    ],
+    [colWidths, sortField, sortOrderUrl, handleResize],
+  );
+
+  const totalWidth = useMemo(
+    () => Object.values(colWidths).reduce((a, b) => a + b, 0),
+    [colWidths],
+  );
 
   return (
-    <div style={{ padding: 16 }}>
+    <div
+      style={{ padding: "0 16px 24px" }}
+      className="history-table history-page-layout"
+    >
       {variant === "subtask-all-batches" && lockedSubtaskTrimmed && (
         <Alert
           type="info"
@@ -488,9 +610,9 @@ export default function OverviewPage({
           message={`分组「${lockedSubtaskTrimmed}」跨全部轮次（不限制最近 20 批）`}
         />
       )}
-      <Form form={form} layout="vertical" style={{ marginBottom: 12 }}>
-        <Row gutter={12}>
-          <Col xs={24} sm={12} md={8} lg={6}>
+      <Form form={form} style={{ marginBottom: 16 }} disabled={loading}>
+        <Row gutter={16}>
+          <Col span={4}>
             <Form.Item name="batch" label="批次" style={{ marginBottom: 8 }}>
               <Select
                 mode="multiple"
@@ -508,7 +630,7 @@ export default function OverviewPage({
             </Form.Item>
           </Col>
           {variant === "default" && (
-            <Col xs={24} sm={12} md={8} lg={6}>
+            <Col span={4}>
               <Form.Item name="subtask" label="分组" style={{ marginBottom: 8 }}>
                 <Select
                   mode="multiple"
@@ -526,7 +648,7 @@ export default function OverviewPage({
               </Form.Item>
             </Col>
           )}
-          <Col xs={24} sm={12} md={8} lg={6}>
+          <Col span={4}>
             <Form.Item name="result" label="执行结果" style={{ marginBottom: 8 }}>
               <Select
                 mode="multiple"
@@ -542,7 +664,7 @@ export default function OverviewPage({
               />
             </Form.Item>
           </Col>
-          <Col xs={24} sm={12} md={8} lg={6}>
+          <Col span={4}>
             <Form.Item name="platform" label="平台" style={{ marginBottom: 8 }}>
               <Select
                 mode="multiple"
@@ -559,7 +681,7 @@ export default function OverviewPage({
               />
             </Form.Item>
           </Col>
-          <Col xs={24} sm={12} md={8} lg={6}>
+          <Col span={4}>
             <Form.Item name="code_branch" label="代码分支" style={{ marginBottom: 8 }}>
               <Select
                 mode="multiple"
@@ -576,32 +698,45 @@ export default function OverviewPage({
               />
             </Form.Item>
           </Col>
-          <Col xs={24} sm={12} md={8} lg={6} style={{ display: "flex", alignItems: "flex-end" }}>
-            <Form.Item style={{ marginBottom: 8 }}>
-              <Button type="primary" onClick={handleFilterChange} style={{ marginRight: 8 }}>
-                筛选
-              </Button>
-              <Button onClick={handleReset}>重置</Button>
-            </Form.Item>
+        </Row>
+        <Row gutter={16} style={{ marginTop: 8 }}>
+          <Col>
+            <Button type="primary" onClick={handleFilterChange} disabled={loading}>
+              筛选确认
+            </Button>
+          </Col>
+          <Col>
+            <Button onClick={handleReset} disabled={loading}>
+              筛选重置
+            </Button>
           </Col>
         </Row>
       </Form>
 
-      <Table<OverviewItem>
-        rowKey="id"
-        loading={loading}
-        columns={columns}
-        dataSource={data}
-        scroll={{ x: 1600 }}
-        pagination={{
-          current: pagination.current,
-          pageSize: pagination.pageSize,
-          total,
-          showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
-        }}
-        onChange={handleTableChange}
-      />
+      <div className="history-page-table-area">
+        <Table<OverviewItem>
+          rowKey="id"
+          loading={loading}
+          columns={columns}
+          dataSource={data}
+          size="small"
+          components={{
+            header: {
+              cell: ResizableTitle,
+            },
+          }}
+          pagination={{
+            current: pageCurrent,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            showTotal: (t) => `共 ${t} 条`,
+            disabled: loading,
+          }}
+          onChange={handleTableChange}
+          scroll={{ x: totalWidth }}
+        />
+      </div>
 
       <Modal
         title="打开方式"
