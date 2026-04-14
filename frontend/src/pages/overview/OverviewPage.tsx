@@ -626,7 +626,7 @@ export default function OverviewPage({
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message={`分组「${lockedSubtaskTrimmed}」跨全部轮次（不限制最近 20 批）`}
+          message={`分组「${lockedSubtaskTrimmed}」跨全部轮次（不限制最近 30 批）`}
         />
       )}
       <Form form={form} style={{ marginBottom: 16 }} disabled={loading}>
@@ -636,7 +636,7 @@ export default function OverviewPage({
               <Select
                 mode="multiple"
                 allowClear
-                placeholder="不选则默认最近20批"
+                placeholder="不选则默认最近30批"
                 maxTagCount="responsive"
                 loading={optionsLoading}
                 showSearch
@@ -771,7 +771,7 @@ export default function OverviewPage({
           value={subtaskChoice}
           onChange={(e) => setSubtaskChoice(e.target.value)}
         >
-          <Radio value="all-batches">跨全部轮次（分组执行历史，不限制最近 20 批）</Radio>
+          <Radio value="all-batches">跨全部轮次（分组执行历史，不限制最近 30 批）</Radio>
           <Radio value="same-batch">当前批次下的用例明细（详细执行历史）</Radio>
         </Radio.Group>
       </Modal>

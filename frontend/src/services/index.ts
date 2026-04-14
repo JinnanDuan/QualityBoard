@@ -344,7 +344,7 @@ export interface OverviewQueryParams {
   result?: string[];
   sort_field?: string;
   sort_order?: string;
-  /** 为 true 时不注入默认最近 20 批；须带 subtask（专用分组页） */
+  /** 为 true 时不注入默认最近 30 批；须带 subtask（专用分组页） */
   all_batches?: boolean;
 }
 

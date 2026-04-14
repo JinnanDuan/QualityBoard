@@ -77,7 +77,7 @@
 
 **不满足上述条件时**：仍按 §3.1，在未选 `start_time` 时注入最近 N 批。
 
-**关联规约**：分组执行历史（`pipeline_overview`，`GET /api/v1/overview`）在未选批次时的默认轮次注入与 §3.1 **思路相同**（`LIKE '20%'`、`ORDER BY` 降序取最近 N 个不重复轮次），但主表为 `pipeline_overview`、字段为 **`batch`**，且 **`N = 20`**（History 为 **30**）。详见 [spec/14_overview_group_history_spec.md](14_overview_group_history_spec.md)。
+**关联规约**：分组执行历史（`pipeline_overview`，`GET /api/v1/overview`）在未选批次时的默认轮次注入与 §3.1 **思路相同**（`LIKE '20%'`、`ORDER BY` 降序取最近 N 个不重复轮次），主表为 `pipeline_overview`、字段为 **`batch`**，**`N = 30`**（与 History 的 `start_time` 批次数一致）。详见 [spec/14_overview_group_history_spec.md](14_overview_group_history_spec.md)。
 
 ### 3.2 前端：批次筛选 placeholder 提示
 
@@ -163,4 +163,5 @@ flowchart TD
 | 1.0 | 2025-03 | 初版：问题分析、设计约束、实现规格、验收标准 |
 | 1.1 | 2025-03 | 扩展注入规则：未选 start_time 即注入；新增批次 placeholder 提示 |
 | 1.2 | 2026-03-23 | 新增 §3.1.1：已选非空 case_name 且无 start_time 时不注入 N 批（配合 spec/12 用例钻取） |
-| 1.3 | 2026-04-11 | §3.1 末新增关联规约：分组执行历史默认批次注入见 spec/14（N=20，表 pipeline_overview） |
+| 1.3 | 2026-04-11 | §3.1 末新增关联规约：分组执行历史默认批次注入见 spec/14（表 pipeline_overview） |
+| 1.4 | 2026-04-11 | 关联规约修订：分组执行历史默认 N 批与 History 一致为 **30**（原 spec/14 曾约定 20） |
