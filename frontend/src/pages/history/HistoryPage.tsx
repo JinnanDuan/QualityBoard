@@ -250,6 +250,8 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const [inheritForm] = Form.useForm();
   const [inheritModalVisible, setInheritModalVisible] = useState(false);
   const [inheritSubmitLoading, setInheritSubmitLoading] = useState(false);
+  /** 继承提交进行中时用于中止 HTTP，避免点取消后仍占服务端 GET_LOCK */
+  const inheritAbortRef = useRef<AbortController | null>(null);
   const [oneClickLoading, setOneClickLoading] = useState(false);
   const [bugNotifyLoading, setBugNotifyLoading] = useState(false);
   const [reportModalVisible, setReportModalVisible] = useState(false);
@@ -611,6 +613,8 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
 
   const openInheritModal = async () => {
     if (!processBtnEnabled) return;
+    inheritAbortRef.current?.abort();
+    inheritAbortRef.current = null;
     setInheritModalVisible(true);
     setInheritSourceRecords([]);
     inheritForm.setFieldsValue({
@@ -665,8 +669,9 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
         payload.source_pfr_id = values.source_pfr_id;
         payload.history_ids = failedOnlyIds.map(Number);
       }
+      inheritAbortRef.current = new AbortController();
       setInheritSubmitLoading(true);
-      const res = await historyApi.inheritFailureReason(payload);
+      const res = await historyApi.inheritFailureReason(payload, inheritAbortRef.current.signal);
       message.success(res.message || `继承成功，共继承 ${res.inherited_count} 条`);
       setInheritModalVisible(false);
       inheritForm.resetFields();
@@ -678,6 +683,11 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
         page_size: params.page_size ?? 20,
       });
     } catch (e: unknown) {
+      const code = (e as { code?: string })?.code;
+      const name = (e as { name?: string })?.name;
+      if (code === "ERR_CANCELED" || name === "CanceledError") {
+        return;
+      }
       const err = e as { response?: { data?: { detail?: string } }; message?: string };
       const msg = err?.response?.data?.detail || err?.message || "继承失败";
       if (typeof msg === "string") {
@@ -689,11 +699,15 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
         message.error("继承失败");
       }
     } finally {
+      inheritAbortRef.current = null;
       setInheritSubmitLoading(false);
     }
   };
 
   const handleInheritModalCancel = () => {
+    inheritAbortRef.current?.abort();
+    inheritAbortRef.current = null;
+    setInheritSubmitLoading(false);
     setInheritModalVisible(false);
     inheritForm.resetFields();
   };

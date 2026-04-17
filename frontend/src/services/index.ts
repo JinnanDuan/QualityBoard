@@ -258,9 +258,15 @@ export const historyApi = {
     if (batch) params.batch = batch;
     return request.get("/history/inherit-source-records", { params }) as any;
   },
-  /** 提交失败原因继承（大批量可能较慢，单独 60s 超时） */
-  inheritFailureReason(data: InheritFailureReasonRequest): Promise<InheritFailureReasonResponse> {
-    return request.post("/history/inherit-failure-reason", data, { timeout: 60000 }) as any;
+  /** 提交失败原因继承（大批量可能较慢，单独 60s 超时）；signal 用于关闭弹窗时中止请求、尽快释放服务端锁 */
+  inheritFailureReason(
+    data: InheritFailureReasonRequest,
+    signal?: AbortSignal
+  ): Promise<InheritFailureReasonResponse> {
+    return request.post("/history/inherit-failure-reason", data, {
+      timeout: 60000,
+      signal,
+    }) as any;
   },
   /** 一键分析：整批未分析失败/异常标记为 bug（锚点解析批次） */
   oneClickAnalyze(data: OneClickAnalyzeRequest): Promise<OneClickAnalyzeResponse> {
