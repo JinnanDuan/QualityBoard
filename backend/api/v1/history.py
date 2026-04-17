@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # get_db: 数据库会话的提供者函数（定义在 database.py 中）
 # FastAPI 的 Depends(get_db) 会自动调用它，创建一个 session 并在请求结束后关闭
-from backend.core.database import get_db
+from backend.core.database import async_session_on_pinned_connection, get_db
 from backend.core.dependencies import get_current_user  # 从 JWT 解析当前用户，未登录返回 401
 # PageResponse: 通用分页响应模型 { items, total, page, page_size }
 from backend.schemas.common import PageResponse
@@ -127,23 +127,23 @@ async def get_inherit_source_records_endpoint(
 @router.post("/inherit-failure-reason", response_model=InheritFailureReasonResponse)
 async def post_inherit_failure_reason(
     req: InheritFailureReasonRequest,
-    db: AsyncSession = Depends(get_db),
     payload: dict = Depends(get_current_user),
 ):
     """执行失败原因继承，支持批次维度和用例维度。"""
     operator_employee_id = payload.get("sub", "")
-    return await inherit_failure_reason(db, req, operator_employee_id)
+    async with async_session_on_pinned_connection() as db:
+        return await inherit_failure_reason(db, req, operator_employee_id)
 
 
 @router.post("/one-click-analyze", response_model=OneClickAnalyzeResponse)
 async def post_one_click_analyze(
     req: OneClickAnalyzeRequest,
-    db: AsyncSession = Depends(get_db),
     payload: dict = Depends(get_current_user),
 ):
     """一键分析：整批未分析失败/异常用例标记为 bug，跟踪人为用例开发责任人（姓名+工号）。"""
     analyzer_employee_id = payload.get("sub", "")
-    return await one_click_analyze(db, req, analyzer_employee_id)
+    async with async_session_on_pinned_connection() as db:
+        return await one_click_analyze(db, req, analyzer_employee_id)
 
 
 @router.post("/one-click-bug-notify", response_model=OneClickBugNotifyResponse)

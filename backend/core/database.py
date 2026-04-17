@@ -7,6 +7,8 @@
 
 import logging
 import time
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 # SQLAlchemy 是 Python 最流行的 ORM(对象关系映射)库。
 # "async" 前缀表示异步版本 — 不会阻塞其他请求，性能更好。
@@ -55,6 +57,23 @@ if settings.LOG_SQL:
 # - class_=AsyncSession:      指定工厂生产的会话类型
 # - expire_on_commit=False:   提交事务后不自动让已加载的对象过期（避免提交后再访问字段时触发额外查询）
 async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+@asynccontextmanager
+async def async_session_on_pinned_connection() -> AsyncIterator[AsyncSession]:
+    """
+    在单条池连接上创建 AsyncSession，直至上下文结束再归还连接。
+
+    普通 get_db 会话在 commit() 后可能把连接放回池并改用另一条连接执行后续 SQL；
+    而 MySQL GET_LOCK / RELEASE_LOCK 必须发生在**同一连接**上，否则 RELEASE 无效、
+    锁会随旧连接滞留在池中，导致后续同名的 GET_LOCK 长时间阻塞直至超时。
+    """
+    async with engine.connect() as conn:
+        session = AsyncSession(bind=conn, expire_on_commit=False)
+        try:
+            yield session
+        finally:
+            await session.close()
 
 
 # 这是 FastAPI 的"依赖注入"函数 — 后面 API 层会通过 Depends(get_db) 来自动调用它
