@@ -1,0 +1,10 @@
+# AI 失败分析 — main_module → Code 仓库提示（复制为 module_repo_mapping.yaml 并配置 AI_MODULE_REPO_MAPPING_PATH）
+# UTF-8。未命中时 repo_hint 为空对象，不报错。
+
+mappings:
+  - main_module: "auth"
+    repo_url: "https://codehub.example.com/group/auth-service"
+    default_branch: "master"
+    path_hints:
+      - "src/auth/"
+      - "tests/auth/"

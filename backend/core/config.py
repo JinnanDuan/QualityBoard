@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # 站点对外根 URL（无尾部斜杠），用于一键通知 WeLink 卡片内 /history 绝对链接
     PUBLIC_APP_URL: str = ""
 
+    # AI 失败分析：main_module → 仓库映射（YAML，模板见 config/module_repo_mapping.yaml.example）
+    AI_MODULE_REPO_MAPPING_PATH: str = ""
+
     # LDAP 域登录（LDAP_HOST 留空则使用 MVP 密码模式）
     LDAP_HOST: str = ""
     LDAP_PORT: int = 389

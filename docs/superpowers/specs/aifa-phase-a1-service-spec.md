@@ -15,7 +15,7 @@
 
 本文档回答：**A1 合并时必须具备哪些行为、接口、配置与验收标准**；不重复架构全文，只固化 **A1 范围内的「必须 / 可选 / 禁止」**。
 
-**A1 不包含**：dt-report 侧 `ai_proxy` / `ai_context_builder`（**A2**）、SSE 进度事件的丰富度与 `report` 全字段契约的终态收紧（**A3**）、接受/拒绝写库（**A4**）、按 `history_id` 限流（**A5**）、Mongo / 外链拉取 / CodeHub 等 Tool（**Phase B**）。
+**A1 不包含**：dt-report 侧 `ai_proxy` / `ai_context_builder`（**A2**，详见 `dt-report-phase-a2-ai-context-builder-spec.md`）、SSE 进度事件的丰富度与 `report` 全字段契约的终态收紧（**A3**）、接受/拒绝写库（**A4**）、按 `history_id` 限流（**A5**）、Mongo / 外链拉取 / CodeHub 等 Tool（**Phase B**）。
 
 ---
 
