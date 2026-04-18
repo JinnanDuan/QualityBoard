@@ -5,6 +5,7 @@
   - `2026-04-08-ai-failure-analysis-architecture.md`（架构与契约）
   - `2026-04-08-ai-failure-analysis-tech-selection.md`（技术选型）
   - `aifa-phase-a1-service-spec.md`（**A1** 阶段规格：服务骨架、端点、DoD）
+  - `dt-report-phase-a2-ai-context-builder-spec.md`（**A2** 阶段规格：`ai_context_builder`、payload、DoD）
 - **状态**：Draft（随排期滚动更新）
 - **日期**：2026-04-14
 
@@ -55,7 +56,7 @@
 | ID | 特性 | 说明 |
 |----|------|------|
 | A1 | 正式 **AIFA 服务骨架**（**已完成**：仓库根目录 `ai-failure-analyzer/`） | FastAPI、`/v1/analyze`、内部 token、健康检查；可先单轮 LLM 无 Tool；**详见 `aifa-phase-a1-service-spec.md`** |
-| A2 | **真实 payload** | `ai_context_builder`：`case_name`/`batch`/`platform` 等（供 Mongo）、`recent_executions`、`repo_hint`；**不传日志 URL**；截图可先直链或空 |
+| A2 | **真实 payload** | `ai_context_builder`：`case_name`/`batch`/`platform` 等（供 Mongo）、`recent_executions`、`repo_hint`；**不传日志 URL**；截图可先直链或空；**详见 `dt-report-phase-a2-ai-context-builder-spec.md`** |
 | A3 | **SSE 进度 + 报告契约** | 与架构 §4 对齐的最小 `report` 字段 |
 | A4 | **接受 / 拒绝 API 终态** | 与架构 §1.4、§9.4、§12.5 一致；审计、权限 |
 | A5 | **限流** | 单 `history_id` 10 次/分钟（架构 §12.4） |

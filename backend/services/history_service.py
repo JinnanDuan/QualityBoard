@@ -224,3 +224,41 @@ async def get_history_options(db: AsyncSession) -> HistoryFilterOptions:
         failure_owner=failure_owner,
         failed_type=failed_type,
     )
+
+
+async def list_recent_executions_by_case_platform(
+    db: AsyncSession,
+    case_name: Optional[str],
+    platform: Optional[str],
+    limit: int = 20,
+) -> List[Dict[str, Optional[str]]]:
+    """
+    同 (case_name, platform) 近 N 条执行摘要，单表查询，按 start_time 降序。
+    case_name 或 platform 为空时返回空列表（AI 上下文 builder 等调用方不阻塞）。
+    """
+    if (
+        case_name is None
+        or not str(case_name).strip()
+        or platform is None
+        or not str(platform).strip()
+    ):
+        return []
+    lim = max(1, min(int(limit), 100))
+    stmt = (
+        select(ph.start_time, ph.case_result, ph.code_branch)
+        .where(ph.case_name == case_name)
+        .where(ph.platform == platform)
+        .order_by(ph.start_time.desc())
+        .limit(lim)
+    )
+    result = await db.execute(stmt)
+    out: List[Dict[str, Optional[str]]] = []
+    for r in result.all():
+        out.append(
+            {
+                "start_time": r[0],
+                "case_result": r[1],
+                "code_branch": r[2],
+            }
+        )
+    return out
