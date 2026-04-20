@@ -112,12 +112,13 @@ async def test_analyze_mock_sse_and_category_guard(
     assert "text/event-stream" in r.headers.get("content-type", "")
     events = _parse_sse(r.text)
     kinds = [e[0] for e in events]
-    assert "progress" in kinds
+    assert kinds.count("progress") >= 2
     assert "report" in kinds
     report_data = next(d for k, d in events if k == "report")
     assert report_data["session_id"] == any_session_id
     assert report_data["status"] == "ok"
     assert report_data["report"]["failure_category"] == "unknown"
+    assert len(report_data["report"]["stage_timeline"]) >= 2
     assert any("成功侧截图" in g for g in report_data["report"]["data_gaps"])
 
 
@@ -145,7 +146,7 @@ async def test_analyze_mock_keeps_spec_change_with_evidence(
     assert r.status_code == 200
     events = _parse_sse(r.text)
     report_data = next(d for k, d in events if k == "report")
-    assert report_data["report"]["failure_category"] == "spec_change"
+    assert report_data["report"]["failure_category"] == "规格变更，用例需适配"
 
 
 @pytest.mark.asyncio
