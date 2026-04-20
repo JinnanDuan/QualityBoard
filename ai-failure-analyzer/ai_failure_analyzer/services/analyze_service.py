@@ -1,4 +1,4 @@
-"""单轮分析：Mock / 真实 LLM、类别守卫、SSE 片段生成。"""
+"""单轮分析：Mock / 真实 LLM、A3 类别守卫、SSE 事件生成。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,12 @@ from typing import AsyncIterator, Dict, List, Optional
 
 from openai import APIError, AsyncOpenAI, AuthenticationError
 
-from ai_failure_analyzer.api.v1.schemas.report import AnalyzeReportEnvelope, ReportInner, TracePayload
+from ai_failure_analyzer.api.v1.schemas.report import (
+    AnalyzeReportEnvelope,
+    ReportInner,
+    StageTimelineItem,
+    TracePayload,
+)
 from ai_failure_analyzer.api.v1.schemas.request import AnalyzeRequest, CaseContext
 from ai_failure_analyzer.core.config import Settings
 from ai_failure_analyzer.services.sse import format_sse
@@ -17,18 +22,30 @@ from ai_failure_analyzer.services.sse import format_sse
 logger = logging.getLogger(__name__)
 
 MAX_PROMPT_JSON_CHARS = 120_000
+CATEGORY_BUG = "bug"
+CATEGORY_ENV = "环境问题"
+CATEGORY_SPEC_CHANGE = "规格变更，用例需适配"
+CATEGORY_FLAKY = "用例不稳定，需加固"
+CATEGORY_UNKNOWN = "unknown"
+ALLOWED_FAILURE_CATEGORIES = (
+    CATEGORY_BUG,
+    CATEGORY_ENV,
+    CATEGORY_SPEC_CHANGE,
+    CATEGORY_FLAKY,
+    CATEGORY_UNKNOWN,
+)
 
 SYSTEM_PROMPT = """你是测试失败归因助手。只根据用户给出的 JSON 上下文做推断，不要编造未出现的堆栈或日志。
 必须只输出一个 JSON 对象（不要 markdown），字段严格如下：
 {
-  "failure_category": "bug|spec_change|flaky|env|unknown",
+  "failure_category": "bug|环境问题|规格变更，用例需适配|用例不稳定，需加固|unknown",
   "summary": "一句话结论（中文）",
   "detailed_reason": "详细失败原因（中文）",
   "confidence": 0.0 到 1.0 的小数,
   "data_gaps": ["可选，列举信息不足点，中文"]
 }
-failure_category 含义：bug=产品缺陷；spec_change=规格变更；flaky=用例不稳定；env=环境问题；unknown=不确定。
-若缺少成功侧截图对比证据，请不要输出 spec_change 或 flaky，应使用 unknown 并在 data_gaps 说明。"""
+failure_category 含义：bug=产品缺陷；环境问题=环境异常；规格变更，用例需适配=需求或界面已变化；用例不稳定，需加固=偶发抖动或竞态；unknown=证据不足。
+若缺少成功侧截图对比证据，请不要输出「规格变更，用例需适配」或「用例不稳定，需加固」，应使用 unknown 并在 data_gaps 说明。"""
 
 
 def has_success_screenshot_evidence(ctx: Optional[CaseContext]) -> bool:
@@ -43,12 +60,12 @@ def has_success_screenshot_evidence(ctx: Optional[CaseContext]) -> bool:
 
 
 def apply_category_guard(inner: ReportInner, has_evidence: bool) -> None:
-    """无成功侧截图证据时禁止 spec_change / flaky。"""
+    """无成功侧截图证据时禁止规格变更/用例不稳定。"""
     if has_evidence:
         return
-    if inner.failure_category in ("spec_change", "flaky"):
+    if inner.failure_category in (CATEGORY_SPEC_CHANGE, CATEGORY_FLAKY):
         msg = "缺少成功侧截图对比证据，已将失败归类降级为 unknown"
-        inner.failure_category = "unknown"
+        inner.failure_category = CATEGORY_UNKNOWN
         if msg not in inner.data_gaps:
             inner.data_gaps = list(inner.data_gaps) + [msg]
 
@@ -61,9 +78,9 @@ def _truncate_payload_for_prompt(payload: AnalyzeRequest) -> str:
 
 
 def _mock_inner_deliberate_spec_change() -> ReportInner:
-    """用于测试类别守卫：故意返回 spec_change 且无证据时应被降级。"""
+    """用于测试类别守卫：故意返回规格变更且无证据时应被降级。"""
     return ReportInner(
-        failure_category="spec_change",
+        failure_category=CATEGORY_SPEC_CHANGE,
         summary="Mock：疑似规格变更",
         detailed_reason="Mock 占位结论。",
         confidence=0.5,
@@ -74,9 +91,22 @@ def _mock_inner_deliberate_spec_change() -> ReportInner:
 
 
 def _inner_from_llm_dict(data: Dict[str, object]) -> ReportInner:
-    cat = str(data.get("failure_category", "unknown")).lower()
-    if cat not in ("bug", "spec_change", "flaky", "env", "unknown"):
-        cat = "unknown"
+    raw_cat = str(data.get("failure_category", CATEGORY_UNKNOWN)).strip()
+    category_alias = {
+        "bug": CATEGORY_BUG,
+        "env": CATEGORY_ENV,
+        "环境问题": CATEGORY_ENV,
+        "spec_change": CATEGORY_SPEC_CHANGE,
+        "规格变更": CATEGORY_SPEC_CHANGE,
+        "规格变更，用例需适配": CATEGORY_SPEC_CHANGE,
+        "flaky": CATEGORY_FLAKY,
+        "用例不稳定": CATEGORY_FLAKY,
+        "用例不稳定，需加固": CATEGORY_FLAKY,
+        "unknown": CATEGORY_UNKNOWN,
+    }
+    cat = category_alias.get(raw_cat.lower(), category_alias.get(raw_cat, CATEGORY_UNKNOWN))
+    if cat not in ALLOWED_FAILURE_CATEGORIES:
+        cat = CATEGORY_UNKNOWN
     conf_raw = data.get("confidence", 0.0)
     try:
         conf = float(conf_raw)  # type: ignore[arg-type]
@@ -89,10 +119,16 @@ def _inner_from_llm_dict(data: Dict[str, object]) -> ReportInner:
         gap_list = [str(x) for x in gaps]
     elif gaps is not None:
         gap_list = [str(gaps)]
+    summary = str(data.get("summary", "")).strip()[:2000]
+    if not summary:
+        summary = "暂未形成明确结论"
+    detailed_reason = str(data.get("detailed_reason", "")).strip()[:20000]
+    if not detailed_reason:
+        detailed_reason = "当前证据不足，建议结合日志、截图和历史执行进一步人工复核。"
     return ReportInner(
         failure_category=cat,  # type: ignore[arg-type]
-        summary=str(data.get("summary", ""))[:2000],
-        detailed_reason=str(data.get("detailed_reason", ""))[:20000],
+        summary=summary,
+        detailed_reason=detailed_reason,
         confidence=conf,
         data_gaps=gap_list,
         evidence=[],
@@ -107,10 +143,9 @@ async def stream_analyze(
 ) -> AsyncIterator[str]:
     """产生 SSE 文本块（含 progress / report 或 error）。"""
     t0 = time.perf_counter()
-    yield format_sse(
-        "progress",
-        {"stage": "llm_single", "message": "正在执行单轮归因分析…"},
-    )
+    timeline: List[StageTimelineItem] = []
+    yield format_sse("progress", {"stage": "plan", "message": "正在规划分析路径..."})
+    timeline.append(StageTimelineItem(stage="plan", message="规划分析路径", elapsed_ms=0))
 
     has_evidence = has_success_screenshot_evidence(payload.case_context)
 
@@ -118,6 +153,7 @@ async def stream_analyze(
     trace = TracePayload()
 
     if settings.aifa_llm_mock:
+        yield format_sse("progress", {"stage": "synthesis", "message": "正在生成归因结论..."})
         inner = _mock_inner_deliberate_spec_change()
         trace.llm_input_tokens = 0
         trace.llm_output_tokens = 0
@@ -131,6 +167,7 @@ async def stream_analyze(
         )
         return
     else:
+        yield format_sse("progress", {"stage": "synthesis", "message": "正在生成归因结论..."})
         client = AsyncOpenAI(
             api_key=settings.aifa_llm_api_key,
             base_url=settings.aifa_llm_base_url,
@@ -176,6 +213,14 @@ async def stream_analyze(
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     trace.elapsed_ms = elapsed_ms
+    timeline.append(
+        StageTimelineItem(
+            stage="synthesis",
+            message="生成归因结论",
+            elapsed_ms=elapsed_ms,
+        )
+    )
+    inner.stage_timeline = timeline
 
     envelope = AnalyzeReportEnvelope(
         session_id=payload.session_id,
