@@ -5,7 +5,13 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
-FailureCategory = Literal["bug", "spec_change", "flaky", "env", "unknown"]
+FailureCategory = Literal[
+    "bug",
+    "环境问题",
+    "规格变更，用例需适配",
+    "用例不稳定，需加固",
+    "unknown",
+]
 ReportStatus = Literal["ok", "partial", "error"]
 
 

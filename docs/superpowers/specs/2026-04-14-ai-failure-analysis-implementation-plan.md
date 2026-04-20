@@ -6,6 +6,7 @@
   - `2026-04-08-ai-failure-analysis-tech-selection.md`（技术选型）
   - `aifa-phase-a1-service-spec.md`（**A1** 阶段规格：服务骨架、端点、DoD）
   - `dt-report-phase-a2-ai-context-builder-spec.md`（**A2** 阶段规格：`ai_context_builder`、payload、DoD）
+  - `aifa-phase-a3-sse-report-contract-spec.md`（**A3** 阶段规格：SSE 进度与 report 契约收紧）
 - **状态**：Draft（随排期滚动更新）
 - **日期**：2026-04-14
 
