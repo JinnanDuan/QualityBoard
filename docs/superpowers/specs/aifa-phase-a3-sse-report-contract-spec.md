@@ -24,7 +24,7 @@
 | **A2** | dt-report 侧 `ai_context_builder` 拼装真实请求 payload |
 | **A4** | 接受/拒绝写库（`pipeline_failure_reason`、`analyzed`） |
 | **A5** | 按 `history_id` 限流与风控策略 |
-| **Phase B** | Mongo/截图索引解析/CodeHub Tool、多阶段 Agent 质量优化 |
+| **Phase B** | 报告/截图索引解析/CodeHub Tool、多阶段 Agent 质量优化 |
 
 ---
 
@@ -71,7 +71,7 @@ A3 至少支持下列事件类型：
 
 ```json
 {
-  "stage": "plan | log_analysis | screenshot_analysis | code_blame | synthesis | finalize",
+  "stage": "plan | report_analysis | screenshot_analysis | code_blame | synthesis | finalize",
   "message": "中文进度文案"
 }
 ```
