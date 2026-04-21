@@ -38,7 +38,7 @@
 **建议技术形态（竖切最小）**：
 
 1. **入口**：列表勾选一条失败记录 +「AI 分析」按钮（穿刺可用简化入口；终态见架构 Drawer Tab）。
-2. **分析请求**：前端传 `history_id` → dt-report **只读**拼最小 payload（**不含日志 URL**；含 `case_name`/`batch`/`platform` 供 Mongo；或穿刺期全 Mock）→ 调 AIFA（或穿刺期 **Mock AIFA** 返回固定 JSON）。
+2. **分析请求**：前端传 `history_id` → dt-report **只读**拼最小 payload（**不含日志 URL**；包含 `case_name`/`batch`/`platform` + `reports_url` + `screenshot_url`）→ 调 AIFA（或穿刺期 **Mock AIFA** 返回固定 JSON）。
 3. **结果展示**：结构化展示「结论 + 失败归类 + 简要依据」（可与终态 schema 子集对齐）。
 4. **接受 / 拒绝**：两个独立 API 或同一资源两种 action；**接受**必须带防误写策略（例如服务端保存 `analysis_draft_id` / 短期 token，避免前端伪造结论）。
 
@@ -57,7 +57,7 @@
 | ID | 特性 | 说明 |
 |----|------|------|
 | A1 | 正式 **AIFA 服务骨架**（**已完成**：仓库根目录 `ai-failure-analyzer/`） | FastAPI、`/v1/analyze`、内部 token、健康检查；可先单轮 LLM 无 Tool；**详见 `aifa-phase-a1-service-spec.md`** |
-| A2 | **真实 payload** | `ai_context_builder`：`case_name`/`batch`/`platform` 等（供 Mongo）、`recent_executions`、`repo_hint`；**不传日志 URL**；截图可先直链或空；**详见 `dt-report-phase-a2-ai-context-builder-spec.md`** |
+| A2 | **真实 payload** | `ai_context_builder`：`case_name`/`batch`/`platform` + `reports_url` + `screenshot_url`、`recent_executions`、`repo_hint`；**不传日志 URL**；截图可先直链或空；**详见 `dt-report-phase-a2-ai-context-builder-spec.md`** |
 | A3 | **SSE 进度 + 报告契约** | 与架构 §4 对齐的最小 `report` 字段 |
 | A4 | **接受 / 拒绝 API 终态** | 与架构 §1.4、§9.4、§12.5 一致；审计、权限 |
 | A5 | **限流** | 单 `history_id` 10 次/分钟（架构 §12.4） |
@@ -66,7 +66,7 @@
 
 | ID | 特性 | 说明 |
 |----|------|------|
-| B1 | **Tool：Mongo 日志** | `query_mongo_logs` + 截断/条数上限（**唯一**文本日志来源；**无**日志 HTML URL） |
+| B1 | **Tool：报告/截图证据拉取** | `fetch_report_html` + `fetch_screenshot_b64`（含索引页解析、截断/条数上限；**无**日志 HTML URL） |
 | B2 | **Agent 三阶段** | Plan → Act → Synthesize（架构 §5） |
 | B3 | **截图/报告 URL 拉取** | AIFA：`fetch_report_html` + `fetch_screenshot_b64`（索引页解析，架构 §8.3）；可选 dt-report 预填直链 |
 | B4 | **成功 batch + URL 替换 + 多图对比** | `spec_change` / `flaky` 规则与降级（架构 §4.3、§8.3） |

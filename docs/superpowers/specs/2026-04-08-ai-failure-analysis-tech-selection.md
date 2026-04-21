@@ -18,7 +18,7 @@
 - **架构文档**里凡是涉及具体技术名的地方，本文档都要给出**选型理由**和**备选**。
 - 本文档不重复架构细节；看到"为什么 Agent 要分三阶段"之类问题请回查架构文档。
 
-**2026-04-14 同步说明**：**不向 AIFA 传日志 URL**（日志仅 Mongo）；**截图目录 URL、测试报告 `reports_url` 写入契约，由 AIFA httpx 直连拉取**；索引页/HTML 解析可在 **AIFA** 使用 **`selectolax` + `httpx`**（见 §6）。dt-report **可选**预填直链数组。**不**引入 Playwright。
+**2026-04-14 同步说明**：**不向 AIFA 传日志 URL**；Phase B 主证据来源为 **`reports_url`（测试报告 HTML）+ `screenshot_url`（截图目录/索引）**，由 **AIFA 使用 `httpx` 直连拉取**；索引页/HTML 解析使用 **`selectolax` + `httpx`**（见 §6）。dt-report **可选**预填直链数组。**不**引入 Playwright。
 
 ---
 
@@ -168,7 +168,7 @@ AIFA_LLM_VISION_MODEL
 
 ## 6. HTML 解析（AIFA：`selectolax`）
 
-**架构约定**：AIFA **不**按**日志** HTML URL 抓取；结构化日志走 **Mongo**。对 **`reports_url`（测试报告 HTML）** 与 **截图目录索引页（HTML）** 的解析，**AIFA** 使用 **`selectolax`**（与架构 §6.2 `fetch_report_html` / `fetch_screenshot_b64` 行为一致）。
+**架构约定**：AIFA **不**按**日志** HTML URL 抓取；对 **`reports_url`（测试报告 HTML）** 与 **截图目录索引页（HTML）** 的解析，**AIFA** 使用 **`selectolax`**（与架构 §6.2 `fetch_report_html` / `fetch_screenshot_b64` 行为一致）。
 
 **dt-report** 若**可选**预解析索引页，可选用同一技术栈；**非必选**。
 
@@ -188,23 +188,20 @@ tree = HTMLParser(html)
 
 ---
 
-## 7. MongoDB 驱动
+## 7. 证据拉取策略
 
-**选择：`motor`**
+**选择：统一 `httpx` 拉取 + `selectolax` 解析**
 
 | 候选 | 决策 | 理由 |
 |---|---|---|
-| **motor** | ✓ | MongoDB 官方 async 驱动；与 `pymongo` 同宗，API 熟悉度高 |
-| pymongo | ✘ | 同步驱动，违反原则 3 |
-| beanie / odmantic | ✘ | ORM 层过度抽象；AIFA 只做只读 `find`，不需要 schema 定义 |
+| **httpx + selectolax** | ✓ | 统一覆盖报告 HTML 与截图索引页，且与现有代码风格一致 |
+| Playwright/Headless browser | ✘ | 运行时重、维护复杂，不符合最小依赖原则 |
+| requests + bs4 | ✘ | 同步调用不满足 async 约束 |
 
 **使用约束**：
-- 只用 `find`，不用 `aggregate` / `mapReduce`（降低权限要求、减少对 Mongo 集群压力）
-- 启动时建单例 `AsyncIOMotorClient`，连接池 10
-- 只读用户（架构 §8.2）
-
-### 7.1 字段映射配置
-因为 AIFA 不控制 Mongo schema，所有字段名走 env（架构 §8.2）。不把字段名硬编码到代码里。
+- 报告抓取统一走 `fetch_report_html(reports_url)`，并做 `max_chars` 截断。
+- 截图抓取统一走 `fetch_screenshot_b64(screenshot_url)`，支持 `image/*` 直链或索引页解析。
+- 索引页解析出的图片数量、单图大小都必须有硬上限。
 
 ---
 
@@ -315,11 +312,11 @@ class CodeHubClient(CodeRepoClient):
 |---|---|---|
 | 测试框架 | **pytest + pytest-asyncio** | 与 dt-report 一致 |
 | HTTP mock | **pytest-httpx** | httpx 官方配套 |
-| Mongo mock | **mongomock-motor** | motor 配套；不必起真 Mongo |
+| Report/Screenshot mock | **pytest-httpx** | 通过 httpx mock 覆盖 HTML 与图片拉取路径 |
 | LLM mock | 自写 fake client（实现 `LLMClient` Protocol） | 真实 LLM 调用不可用于单元测试 |
 | 覆盖率 | **pytest-cov** | 标配 |
 
-**集成测试**：额外提供 docker-compose.test.yml，拉起真 Mongo + mock CodeHub + mock LLM gateway 做端到端。
+**集成测试**：额外提供 docker-compose.test.yml，拉起 mock 报告/截图源 + mock CodeHub + mock LLM gateway 做端到端。
 
 ---
 
@@ -355,9 +352,6 @@ httpx==0.27.0
 # HTML 解析（AIFA：reports_url + 截图索引页；与架构 §6.2 一致）
 selectolax==0.3.21
 
-# MongoDB
-motor==3.5.1
-
 # LLM
 openai==1.54.0
 
@@ -368,7 +362,6 @@ cachetools==5.5.0
 pytest==8.3.0
 pytest-asyncio==0.24.0
 pytest-httpx==0.32.0
-mongomock-motor==0.0.33
 pytest-cov==5.0.0
 ```
 
@@ -412,7 +405,7 @@ pytest-cov==5.0.0
   - 一个 Docker 镜像的构建/发布
   - 一套 `AIFA_*` env 的管理（尤其 API key 与 token）
   - 一个内网地址与防火墙规则
-  - Mongo 只读账号的申请
+  - 报告/截图源的访问连通性确认
   - CodeHub service token 的申请
 
 ### 17.3 对成本的影响
@@ -432,9 +425,8 @@ pytest-cov==5.0.0
 - [ ] FastAPI + Uvicorn + pydantic v2
 - [ ] 所有 env 经 `pydantic-settings` 加载，前缀 `AIFA_`
 - [ ] httpx 单例 AsyncClient 全局共享
-- [ ] **无日志 URL 抓取**；日志仅 motor + Mongo
+- [ ] **无日志 URL 抓取**；证据主路径为 `reports_url` + `screenshot_url`
 - [ ] **AIFA** 对 `reports_url`、截图索引 HTML 使用 **selectolax**（与 `fetch_report_html` 等 tool 一致）
-- [ ] motor 单例 `AsyncIOMotorClient`
 - [ ] `openai` SDK（`AsyncOpenAI`）+ `base_url` 指向 ZhipuAI
 - [ ] 文本/视觉模型名完全从 env 读取
 - [ ] `CodeRepoClient` Protocol 存在；初期仅实现 `CodeHubClient`
@@ -447,4 +439,4 @@ pytest-cov==5.0.0
 - [ ] `HistoryPage.tsx` 改动 ≤ 1 行
 - [ ] dt-report 转发 AIFA 的 httpx 客户端配置 **180s** 级读超时（或与架构一致的可调值）
 - [ ] docker-compose 可拉起 dt-report + AIFA 两个 service
-- [ ] docker-compose.test.yml 可跑端到端测试（含 mock Mongo/CodeHub/LLM）
+- [ ] docker-compose.test.yml 可跑端到端测试（含 mock 报告/截图源 + CodeHub/LLM）

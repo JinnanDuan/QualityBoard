@@ -22,7 +22,7 @@
 | **A3** | AIFA 侧 SSE `progress` 丰富度、`report` 字段与架构 §4.3 的终态对齐 |
 | **A4** | 用户「接受 / 拒绝」、写入 `pipeline_failure_reason`、`analyzed` 等 |
 | **A5** | 按 `history_id` 限流（架构 §12.4） |
-| **Phase B** | Mongo Tool、多阶段 Agent、截图索引解析、CodeHub 等 |
+| **Phase B** | 报告/截图 Tool、多阶段 Agent、截图索引解析、CodeHub 等 |
 | **Phase C1** | 前端 Drawer、AI 归因 Tab、懒加载（见架构 §9） |
 
 **说明**：架构 §3.3 将 **`ai_proxy.py`**（JWT、转发 AIFA、SSE、审计等）与 **`ai_context_builder`** 并列列出；**实现计划将「限流 / 接受拒绝」记在 A4/A5**。本文档 **A2 仅覆盖 `ai_context_builder` 与由其组装的 payload**。与 **「最小 `POST /api/v1/ai/analyze` 代理」** 是否同批合入，由排期决定：代理 **不属于** A2 编号条目，但 **端到端联调** 常与之同批。
@@ -41,8 +41,8 @@
 
 ### 1.2 明确禁止
 
-- **禁止**在发往 AIFA 的 payload 中包含 **日志 HTML URL**（架构 **§1.4.1**、**§4.1**）。  
-  - 说明：MySQL `pipeline_history.log_url` 仅可在 **dt-report 内部**用于其他用途；**写入 AIFA 请求 JSON 的字段集合中不得出现** 与「整页日志 HTML」等价的对外传递（架构约定：**日志证据**由 Phase B 的 **`query_mongo_logs`** 使用 **`case_name` / `batch` / `platform`** 等从 Mongo 获取）。
+- **禁止**在发往 AIFA 的 payload 中包含 **日志 HTML URL**（架构 **§1.4.1**、**§4.1**）。
+  - 说明：MySQL `pipeline_history.log_url` 仅可在 **dt-report 内部**用于其他用途；**写入 AIFA 请求 JSON 的字段集合中不得出现** 与「整页日志 HTML」等价的对外传递（改版后 Phase B 以 `reports_url` 与 `screenshot_url` 为主要证据来源）。
 - **禁止**在 `ai_context_builder` 内调用 AIFA 或任何 LLM。
 - **禁止**违反项目数据库红线：对既有表的 **ALTER / DROP**、对 `pipeline_history` / `pipeline_overview` 的 **DELETE**、**ORM 自动建表** 等（见仓库 `.cursor/rules/project.mdc`）。
 
@@ -60,7 +60,7 @@
 
 表结构以 **`database/*.sql` 与 `backend/models/pipeline_history.py`** 为准。架构 §4.1 使用 **`batch`** 等命名；当前表以 **`start_time`** 表示轮次（注释：**等同于 batch**）。**A2 在 `case_context` 中应同时满足产品语义**：
 
-- 将 **`start_time`** 映射为契约中的 **`batch`**（或与架构示例一致的字段名），并在实现与测试中写清对应关系，避免 AIFA / Mongo 查询维度不一致。
+- 将 **`start_time`** 映射为契约中的 **`batch`**（或与架构示例一致的字段名），并在实现与测试中写清对应关系，避免 AIFA 分析维度不一致。
 
 其他常见映射（示例，以实现阶段 ORM 字段为准）：
 
