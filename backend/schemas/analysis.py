@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -33,3 +33,10 @@ class RejectFailureReasonResponse(BaseModel):
     history_id: int
     rejected: bool = True
     message: str = "已拒绝本次分析结果"
+
+
+class AnalyzeRequest(BaseModel):
+    history_id: int = Field(..., ge=1, description="执行历史 ID")
+    mode: Literal["initial", "follow_up"] = Field("initial", description="分析模式")
+    session_id: Optional[str] = Field(None, max_length=100, description="AIFA 会话 ID")
+    follow_up_message: Optional[str] = Field(None, max_length=2000, description="追问内容")
