@@ -1,8 +1,11 @@
 # ai-failure-analyzer（AIFA）Phase A1
 
-独立服务：失败用例 AI 辅助归因（当前为**单轮 LLM、无 Tool**骨架）。
+独立服务：失败用例 AI 辅助归因（当前已支持 **Plan / Act / Synthesize 三阶段主循环**，并具备 B1 报告/截图工具调用能力）。
 
-规格说明：[docs/superpowers/specs/aifa-phase-a1-service-spec.md](../docs/superpowers/specs/aifa-phase-a1-service-spec.md)
+规格说明：
+- [docs/superpowers/specs/aifa-phase-a1-service-spec.md](../docs/superpowers/specs/aifa-phase-a1-service-spec.md)
+- [docs/superpowers/specs/aifa-phase-b1-report-screenshot-tools-spec.md](../docs/superpowers/specs/aifa-phase-b1-report-screenshot-tools-spec.md)
+- [docs/superpowers/specs/aifa-phase-b2-agent-three-stage-spec.md](../docs/superpowers/specs/aifa-phase-b2-agent-three-stage-spec.md)
 
 ## 环境要求
 
