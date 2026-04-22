@@ -19,7 +19,11 @@ from ai_failure_analyzer.api.v1.schemas.report import (
 )
 from ai_failure_analyzer.api.v1.schemas.request import AnalyzeRequest, CaseContext
 from ai_failure_analyzer.core.config import Settings
-from ai_failure_analyzer.services.evidence_tools import fetch_report_html, fetch_screenshot_b64
+from ai_failure_analyzer.services.evidence_tools import (
+    fetch_report_html,
+    fetch_screenshot_b64,
+    resolve_evidence_urls,
+)
 from ai_failure_analyzer.services.sse import format_sse
 
 logger = logging.getLogger(__name__)
@@ -496,14 +500,41 @@ async def stream_analyze(
 
         yield format_sse("progress", {"stage": "act_started", "message": "正在执行证据提取与分析..."})
         act_start = time.perf_counter()
+        resolved_urls: Dict[str, object] = {}
+        if payload.case_context is not None:
+            resolved_urls = await resolve_evidence_urls(
+                settings=settings,
+                reports_url=payload.case_context.reports_url,
+                screenshot_urls=payload.case_context.screenshot_urls,
+                screenshot_index_url=payload.case_context.screenshot_index_url,
+            )
+            resolution_errors = resolved_urls.get("errors")
+            if isinstance(resolution_errors, list):
+                for item in resolution_errors:
+                    if not isinstance(item, dict):
+                        continue
+                    code = str(item.get("code", "unknown"))
+                    field = str(item.get("field", "unknown"))
+                    label = "截图" if "screenshot" in field else "报告"
+                    gap = "%s URL 解析失败（%s:%s）" % (label, field, code)
+                    if gap not in all_data_gaps:
+                        all_data_gaps.append(gap)
+            resolution_meta = resolved_urls.get("url_resolution_meta")
+            if isinstance(resolution_meta, dict):
+                warning_items = resolution_meta.get("warnings")
+                if isinstance(warning_items, list):
+                    for warning in warning_items:
+                        text = "URL 解析提示：%s" % str(warning)
+                        if text not in all_data_gaps:
+                            all_data_gaps.append(text)
         for skill in plan:
             trace.skills_invoked.append(skill)
             if skill == SKILL_HISTORY:
                 skill_summaries[skill] = _build_history_summary(payload)
                 continue
             if skill == SKILL_REPORT:
-                ctx = payload.case_context
-                if ctx is None or not (ctx.reports_url or "").strip():
+                report_url = str(resolved_urls.get("report_url", "")).strip()
+                if not report_url:
                     all_data_gaps.append("缺少 reports_url，跳过报告分析")
                     skill_summaries[skill] = {
                         "error_lines": [],
@@ -513,21 +544,19 @@ async def stream_analyze(
                         "error": "reports_url_missing",
                     }
                     continue
-                report_result = await fetch_report_html((ctx.reports_url or "").strip(), settings=settings)
+                report_result = await fetch_report_html(report_url, settings=settings)
                 trace.tool_calls += 1
                 if "error" in report_result:
                     all_data_gaps.append("报告抓取失败：%s" % str(report_result.get("error")))
                 skill_summaries[skill] = _extract_report_skill_summary(report_result)
                 continue
             if skill == SKILL_SCREENSHOT:
-                ctx = payload.case_context
+                screenshot_candidates_raw = resolved_urls.get("screenshot_urls", [])
                 screenshot_candidates: List[str] = []
-                if ctx is not None:
-                    for item in ctx.screenshot_urls or []:
-                        if item and item.strip():
+                if isinstance(screenshot_candidates_raw, list):
+                    for item in screenshot_candidates_raw:
+                        if isinstance(item, str) and item.strip():
                             screenshot_candidates.append(item.strip())
-                    if not screenshot_candidates and (ctx.screenshot_index_url or "").strip():
-                        screenshot_candidates.append((ctx.screenshot_index_url or "").strip())
                 if not screenshot_candidates:
                     all_data_gaps.append("缺少截图 URL，跳过截图分析")
                     skill_summaries[skill] = {
@@ -542,7 +571,11 @@ async def stream_analyze(
                 trace.tool_calls += 1
                 if "error" in screenshot_result:
                     all_data_gaps.append("截图抓取失败：%s" % str(screenshot_result.get("error")))
-                skill_summaries[skill] = _extract_screenshot_skill_summary(screenshot_result)
+                screenshot_summary = _extract_screenshot_skill_summary(screenshot_result)
+                meta = resolved_urls.get("url_resolution_meta")
+                if isinstance(meta, dict):
+                    screenshot_summary["url_resolution_meta"] = meta
+                skill_summaries[skill] = screenshot_summary
                 continue
             if skill == SKILL_CODE_BLAME:
                 all_data_gaps.append("CodeHub 工具尚未启用，已跳过代码归因")

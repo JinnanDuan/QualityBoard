@@ -4,7 +4,11 @@ import httpx
 import pytest
 
 from ai_failure_analyzer.core.config import Settings
-from ai_failure_analyzer.services.evidence_tools import fetch_report_html, fetch_screenshot_b64
+from ai_failure_analyzer.services.evidence_tools import (
+    fetch_report_html,
+    fetch_screenshot_b64,
+    resolve_evidence_urls,
+)
 
 
 def _settings() -> Settings:
@@ -99,4 +103,73 @@ async def test_fetch_screenshot_b64_index_html(monkeypatch: pytest.MonkeyPatch) 
 async def test_fetch_screenshot_rejects_unallowed_host() -> None:
     result = await fetch_screenshot_b64("https://evil.com/a.png", settings=_settings())
     assert result["error"] == "url_host_not_allowed"
+
+
+@pytest.mark.asyncio
+async def test_resolve_evidence_urls_prefilled_urls_have_priority(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = {"count": 0}
+
+    async def fake_get(self: httpx.AsyncClient, url: str) -> httpx.Response:
+        called["count"] += 1
+        request = httpx.Request("GET", url)
+        return httpx.Response(200, headers={"content-type": "text/html"}, text="<html></html>", request=request)
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    result = await resolve_evidence_urls(
+        settings=_settings(),
+        reports_url="https://example.com/r.html",
+        screenshot_urls=["https://example.com/a.png", "https://example.com/a.png#dup"],
+        screenshot_index_url="https://example.com/index.html",
+    )
+    assert result["report_url"] == "https://example.com/r.html"
+    assert result["screenshot_urls"] == ["https://example.com/a.png"]
+    meta = result["url_resolution_meta"]
+    assert meta["source"] == "prefilled_urls"
+    assert called["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_resolve_evidence_urls_extracts_relative_paths_from_index(monkeypatch: pytest.MonkeyPatch) -> None:
+    html = """
+    <html><body>
+      <img src="../images/1.png" />
+      <img src="./2.jpg" />
+      <a href="/3.webp">x</a>
+      <a href="/not-image.html">skip</a>
+    </body></html>
+    """
+
+    async def fake_get(self: httpx.AsyncClient, url: str) -> httpx.Response:
+        request = httpx.Request("GET", url)
+        return httpx.Response(200, headers={"content-type": "text/html"}, text=html, request=request)
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    result = await resolve_evidence_urls(
+        settings=_settings(),
+        reports_url=None,
+        screenshot_urls=[],
+        screenshot_index_url="https://example.com/a/b/index.html",
+        max_screenshot_candidates=2,
+    )
+    assert result["screenshot_urls"] == [
+        "https://example.com/a/images/1.png",
+        "https://example.com/3.webp",
+    ]
+    meta = result["url_resolution_meta"]
+    assert meta["source"] == "index_page"
+    assert meta["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_resolve_evidence_urls_rejects_unallowed_index_host() -> None:
+    result = await resolve_evidence_urls(
+        settings=_settings(),
+        reports_url=None,
+        screenshot_urls=[],
+        screenshot_index_url="https://evil.com/index.html",
+    )
+    assert result["screenshot_urls"] == []
+    errors = result["errors"]
+    assert isinstance(errors, list)
+    assert any(item["code"] == "url_host_not_allowed" for item in errors)
 
