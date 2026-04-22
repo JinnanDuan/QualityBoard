@@ -7,6 +7,7 @@
   - `aifa-phase-a1-service-spec.md`（**A1** 阶段规格：服务骨架、端点、DoD）
   - `dt-report-phase-a2-ai-context-builder-spec.md`（**A2** 阶段规格：`ai_context_builder`、payload、DoD）
   - `aifa-phase-a3-sse-report-contract-spec.md`（**A3** 阶段规格：SSE 进度与 report 契约收紧）
+  - `aifa-phase-b1-report-screenshot-tools-spec.md`（**B1** 阶段规格：报告/截图证据拉取 Tool、DoD）
 - **状态**：Draft（随排期滚动更新）
 - **日期**：2026-04-14
 
@@ -66,7 +67,7 @@
 
 | ID | 特性 | 说明 |
 |----|------|------|
-| B1 | **Tool：报告/截图证据拉取** | `fetch_report_html` + `fetch_screenshot_b64`（含索引页解析、截断/条数上限；**无**日志 HTML URL） |
+| B1 | **Tool：报告/截图证据拉取** | `fetch_report_html` + `fetch_screenshot_b64`（含索引页解析、截断/条数上限；**无**日志 HTML URL）；**详见 `aifa-phase-b1-report-screenshot-tools-spec.md`** |
 | B2 | **Agent 三阶段** | Plan → Act → Synthesize（架构 §5） |
 | B3 | **截图/报告 URL 拉取** | AIFA：`fetch_report_html` + `fetch_screenshot_b64`（索引页解析，架构 §8.3）；可选 dt-report 预填直链 |
 | B4 | **成功 batch + URL 替换 + 多图对比** | `spec_change` / `flaky` 规则与降级（架构 §4.3、§8.3） |
