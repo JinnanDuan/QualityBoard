@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import type { MouseEventHandler } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Resizable } from "react-resizable";
 import "react-resizable/css/styles.css";
@@ -38,6 +39,8 @@ import {
 } from "../../services";
 
 const { Text, Title, Paragraph } = Typography;
+const REASON_CACHE_KEY = "history_failure_reason_cache";
+const REASON_CACHE_LIMIT = 30;
 
 /** 轮次群通告正文（与产品约定模板一致） */
 function buildRollingReportMarkdown(data: BatchReportResponse): string {
@@ -245,6 +248,8 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);  // 勾选的行 id
   const [processModalVisible, setProcessModalVisible] = useState(false);
   const [failureProcessOptions, setFailureProcessOptions] = useState<FailureProcessOptions | null>(null);
+  const [processTargetIds, setProcessTargetIds] = useState<number[] | null>(null);
+  const [reasonCache, setReasonCache] = useState<string[]>([]);
   const [processSubmitLoading, setProcessSubmitLoading] = useState(false);
   const processFailedType = Form.useWatch("failed_type", processForm);  // 监听失败类型，控制模块字段显隐
   const [inheritForm] = Form.useForm();
@@ -377,6 +382,23 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
 
   useEffect(() => {
     fetchOptions();
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(REASON_CACHE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const next = parsed
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+        .slice(0, REASON_CACHE_LIMIT);
+      setReasonCache(next);
+    } catch {
+      setReasonCache([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -514,6 +536,13 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   };
 
   const selectedRows = data.filter((r) => selectedRowKeys.includes(r.id));
+  /** 与 `handleProcessModalOk` / `openProcessModal` 一致：行级「分析」仅写 processTargetIds 时，不以勾选行为准 */
+  const processModalContextRows =
+    processTargetIds && processTargetIds.length > 0
+      ? processTargetIds
+          .map((id) => data.find((r) => r.id === id))
+          .filter((r): r is HistoryItem => !!r)
+      : selectedRows;
   const hasSelectedFailedOrError = selectedRows.some(
     (r) => r.case_result === "failed" || r.case_result === "error"
   );
@@ -533,13 +562,23 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const notifyBtnEnabled = processBtnEnabled && currentBatch != null;
   const showBatchDimension = currentBatch != null;
 
-  const openProcessModal = async () => {
-    if (!processBtnEnabled) return;
+  const openProcessModal = async (targetRows?: HistoryItem[]) => {
+    const effectiveRows = targetRows && targetRows.length > 0 ? targetRows : selectedRows;
+    if (!effectiveRows.length) return;
+    const hasFailedOrError = effectiveRows.some(
+      (r) => r.case_result === "failed" || r.case_result === "error"
+    );
+    if (!hasFailedOrError) return;
+    setProcessTargetIds(
+      effectiveRows
+        .filter((r) => r.case_result === "failed" || r.case_result === "error")
+        .map((r) => r.id)
+    );
     setProcessModalVisible(true);
     try {
       const opts = await historyApi.failureProcessOptions();
       setFailureProcessOptions(opts);
-      const firstFailed = selectedRows.find(
+      const firstFailed = effectiveRows.find(
         (r) => r.case_result === "failed" || r.case_result === "error"
       );
       const rawModule = firstFailed?.main_module ?? undefined;
@@ -557,12 +596,39 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
     }
   };
 
+  /** 工具栏「分析处理」：显式事件类型，避免将 `openProcessModal` 直接作 onClick 时与 MouseEvent 参数冲突（TS2322） */
+  const handleToolbarOpenProcessModal: MouseEventHandler<HTMLElement> = () => {
+    void openProcessModal();
+  };
+
+  const openProcessModalByRow = async (record: HistoryItem) => {
+    if (record.case_result !== "failed" && record.case_result !== "error") return;
+    setDrawerVisible(false);
+    await openProcessModal([record]);
+  };
+
+  const cacheReasonIfNeeded = (reason: string | undefined) => {
+    const value = reason?.trim();
+    if (!value) return;
+    const next = [value, ...reasonCache.filter((item) => item !== value)].slice(0, REASON_CACHE_LIMIT);
+    setReasonCache(next);
+    try {
+      localStorage.setItem(REASON_CACHE_KEY, JSON.stringify(next));
+    } catch {
+      // 忽略本地存储异常，避免影响标注主流程
+    }
+  };
+
   const handleProcessModalOk = async () => {
     try {
       const values = await processForm.validateFields();
-      const failedOnlyIds = selectedRows
+      const selectedFailedOnlyIds = selectedRows
         .filter((r) => r.case_result === "failed" || r.case_result === "error")
         .map((r) => r.id);
+      const failedOnlyIds =
+        processTargetIds && processTargetIds.length > 0
+          ? processTargetIds
+          : selectedFailedOnlyIds;
       if (!failedOnlyIds.length) {
         message.warning("请至少勾选一条失败或异常记录");
         return;
@@ -580,8 +646,10 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       }
       setProcessSubmitLoading(true);
       await historyApi.failureProcess(payload);
+      cacheReasonIfNeeded(payload.reason);
       message.success("标注成功");
       setProcessModalVisible(false);
+      setProcessTargetIds(null);
       processForm.resetFields();
       setSelectedRowKeys([]);
       const params = paramsFromUrl();
@@ -608,6 +676,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
 
   const handleProcessModalCancel = () => {
     setProcessModalVisible(false);
+    setProcessTargetIds(null);
     processForm.resetFields();
   };
 
@@ -1118,12 +1187,27 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       sorter: true,
       sortOrder: sortOrderFor("analyzed"),
       ellipsis: { showTitle: false },
-      render: (val: number | null) => {
+      render: (val: number | null, record: HistoryItem) => {
         const text = val === 1 ? "已分析" : "未分析";
+        const canAnalyze = record.case_result === "failed" || record.case_result === "error";
         return (
-          <EllipsisTooltip title={text} placement="topLeft">
-            <Tag color={val === 1 ? "blue" : "default"}>{text}</Tag>
-          </EllipsisTooltip>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
+            <EllipsisTooltip title={text} placement="topLeft">
+              <Tag color={val === 1 ? "blue" : "default"}>{text}</Tag>
+            </EllipsisTooltip>
+            <Button
+              size="small"
+              type="link"
+              disabled={!canAnalyze}
+              onClick={(e) => {
+                e.stopPropagation();
+                openProcessModalByRow(record);
+              }}
+              style={{ padding: 0, height: "auto" }}
+            >
+              分析
+            </Button>
+          </div>
         );
       },
       onHeaderCell: (col) => ({
@@ -1452,7 +1536,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
           <Col>
             {/* 至少勾选一条失败记录时可用 */}
             <Button
-              onClick={openProcessModal}
+              onClick={handleToolbarOpenProcessModal}
               disabled={!processBtnEnabled || loading}
             >
               分析处理
@@ -1531,7 +1615,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
 
       <Modal
         title="失败记录标注"
-        width={500}
+        width={580}
         open={processModalVisible}
         onOk={handleProcessModalOk}
         onCancel={handleProcessModalCancel}
@@ -1539,6 +1623,9 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
         okText="确定"
         cancelText="取消"
         destroyOnClose
+        styles={{
+          body: { maxHeight: "min(70vh, 520px)", overflowY: "auto" },
+        }}
       >
         {/* 字段顺序：失败类型 → 模块（仅 bug 时显示）→ 跟踪人 → 详细原因 */}
         <Form
@@ -1556,7 +1643,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
                 );
                 processForm.setFieldValue("owner", cft?.owner ?? undefined);
               } else {
-                const firstFailed = selectedRows.find(
+                const firstFailed = processModalContextRows.find(
                   (r) => r.case_result === "failed" || r.case_result === "error"
                 );
                 const rawModule = firstFailed?.main_module ?? undefined;
@@ -1647,6 +1734,28 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
               />
             )}
           </Form.Item>
+          {reasonCache.length > 0 && (
+            <Form.Item label="从历史记录填入（可选）">
+              <Select
+                allowClear
+                showSearch
+                placeholder="输入关键字筛选，选择后写入下方详细原因"
+                style={{ width: "100%" }}
+                options={reasonCache.map((text) => ({
+                  label: text.length > 100 ? `${text.slice(0, 100)}…` : text,
+                  value: text,
+                }))}
+                filterOption={(input, option) =>
+                  String(option?.value ?? "")
+                    .toLowerCase()
+                    .includes(input.trim().toLowerCase())
+                }
+                onChange={(value) => {
+                  if (value) processForm.setFieldValue("reason", value);
+                }}
+              />
+            </Form.Item>
+          )}
           <Form.Item
             name="reason"
             label="详细原因"
@@ -1656,7 +1765,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
               { max: 2000, message: "最多 2000 字符" },
             ]}
           >
-            <Input.TextArea rows={4} placeholder="请输入详细原因" maxLength={2000} showCount />
+            <Input.TextArea rows={4} maxLength={2000} showCount placeholder="请输入详细原因" />
           </Form.Item>
         </Form>
       </Modal>
