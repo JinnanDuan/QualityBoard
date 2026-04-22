@@ -43,7 +43,7 @@ async def test_healthz(monkeypatch: pytest.MonkeyPatch) -> None:
     assert r.status_code == 200
     data = r.json()
     assert data["status"] == "ok"
-    assert data["checks"]["mongo"] == "skipped"
+    assert data["checks"]["report_fetch"] == "skipped"
     assert data["checks"]["llm"] == "ok"
 
 

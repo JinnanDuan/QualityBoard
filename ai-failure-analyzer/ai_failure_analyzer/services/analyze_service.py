@@ -17,6 +17,7 @@ from ai_failure_analyzer.api.v1.schemas.report import (
 )
 from ai_failure_analyzer.api.v1.schemas.request import AnalyzeRequest, CaseContext
 from ai_failure_analyzer.core.config import Settings
+from ai_failure_analyzer.services.evidence_tools import fetch_report_html, fetch_screenshot_b64
 from ai_failure_analyzer.services.sse import format_sse
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,30 @@ async def stream_analyze(
     timeline.append(StageTimelineItem(stage="plan", message="规划分析路径", elapsed_ms=0))
 
     has_evidence = has_success_screenshot_evidence(payload.case_context)
+    evidence_payload: Dict[str, object] = {}
+    evidence_data_gaps: List[str] = []
+
+    yield format_sse("progress", {"stage": "report_analysis", "message": "正在拉取报告与截图证据..."})
+    ctx = payload.case_context
+    if ctx is not None and (ctx.reports_url or "").strip():
+        report_result = await fetch_report_html((ctx.reports_url or "").strip(), settings=settings)
+        evidence_payload["report"] = report_result
+        if "error" in report_result:
+            evidence_data_gaps.append("报告抓取失败：%s" % str(report_result.get("error")))
+    if ctx is not None:
+        screenshot_candidates: List[str] = []
+        for item in ctx.screenshot_urls or []:
+            if item and item.strip():
+                screenshot_candidates.append(item.strip())
+        if not screenshot_candidates and (ctx.screenshot_index_url or "").strip():
+            screenshot_candidates.append((ctx.screenshot_index_url or "").strip())
+        if screenshot_candidates:
+            screenshot_result = await fetch_screenshot_b64(screenshot_candidates[0], settings=settings)
+            evidence_payload["screenshot"] = screenshot_result
+            if "error" in screenshot_result:
+                evidence_data_gaps.append("截图抓取失败：%s" % str(screenshot_result.get("error")))
+        else:
+            evidence_data_gaps.append("缺少截图 URL，未执行截图证据拉取")
 
     inner: ReportInner
     trace = TracePayload()
@@ -173,7 +198,15 @@ async def stream_analyze(
             base_url=settings.aifa_llm_base_url,
             timeout=120.0,
         )
-        user_content = _truncate_payload_for_prompt(payload)
+        prompt_payload = payload
+        if evidence_payload:
+            merged = payload.model_dump(exclude_none=True)
+            merged["b1_evidence"] = evidence_payload
+            user_content = json.dumps(merged, ensure_ascii=False)
+            if len(user_content) > MAX_PROMPT_JSON_CHARS:
+                user_content = user_content[:MAX_PROMPT_JSON_CHARS] + "\n…(已截断)"
+        else:
+            user_content = _truncate_payload_for_prompt(payload)
         try:
             completion = await client.chat.completions.create(
                 model=settings.aifa_llm_model,
@@ -210,6 +243,12 @@ async def stream_analyze(
             return
 
     apply_category_guard(inner, has_evidence)
+    if evidence_data_gaps:
+        combined_gaps = list(inner.data_gaps)
+        for gap in evidence_data_gaps:
+            if gap not in combined_gaps:
+                combined_gaps.append(gap)
+        inner.data_gaps = combined_gaps
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     trace.elapsed_ms = elapsed_ms

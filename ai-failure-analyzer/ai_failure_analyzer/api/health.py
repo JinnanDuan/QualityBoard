@@ -20,7 +20,7 @@ async def healthz(settings: Settings = Depends(get_settings)) -> dict:
         "status": "ok",
         "checks": {
             "process": "ok",
-            "mongo": "skipped",
+            "report_fetch": "skipped",
             "codehub": "skipped",
             "llm": llm_status,
         },

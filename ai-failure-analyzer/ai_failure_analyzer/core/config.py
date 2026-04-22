@@ -1,6 +1,6 @@
 """环境变量与全局配置。"""
 
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,11 +28,53 @@ class Settings(BaseSettings):
     aifa_llm_model: str = Field(default="gpt-4o-mini", validation_alias="AIFA_LLM_MODEL")
     aifa_llm_mock: bool = Field(default=False, validation_alias="AIFA_LLM_MOCK")
     aifa_port: int = Field(default=8080, validation_alias="AIFA_PORT")
+    aifa_fetch_connect_timeout_seconds: float = Field(
+        default=3.0,
+        validation_alias="AIFA_FETCH_CONNECT_TIMEOUT_SECONDS",
+    )
+    aifa_fetch_read_timeout_seconds: float = Field(
+        default=10.0,
+        validation_alias="AIFA_FETCH_READ_TIMEOUT_SECONDS",
+    )
+    aifa_report_max_chars: int = Field(default=20000, validation_alias="AIFA_REPORT_MAX_CHARS")
+    aifa_screenshot_max_bytes: int = Field(
+        default=2_000_000,
+        validation_alias="AIFA_SCREENSHOT_MAX_BYTES",
+    )
+    aifa_screenshot_max_images: int = Field(
+        default=10,
+        validation_alias="AIFA_SCREENSHOT_MAX_IMAGES",
+    )
+    aifa_fetch_url_max_length: int = Field(
+        default=2048,
+        validation_alias="AIFA_FETCH_URL_MAX_LENGTH",
+    )
+    aifa_fetch_allowed_hosts: List[str] = Field(
+        default_factory=list,
+        validation_alias="AIFA_FETCH_ALLOWED_HOSTS",
+    )
 
     @field_validator("aifa_llm_mock", mode="before")
     @classmethod
     def _validate_mock(cls, v: object) -> bool:
         return _parse_bool_mock(v)  # type: ignore[arg-type]
+
+    @field_validator("aifa_fetch_allowed_hosts", mode="before")
+    @classmethod
+    def _validate_allowed_hosts(cls, v: object) -> List[str]:
+        if v is None:
+            return []
+        if isinstance(v, list):
+            out: List[str] = []
+            for item in v:
+                text = str(item).strip().lower()
+                if text:
+                    out.append(text)
+            return out
+        text = str(v).strip()
+        if not text:
+            return []
+        return [host.strip().lower() for host in text.split(",") if host.strip()]
 
 
 def get_settings() -> Settings:
