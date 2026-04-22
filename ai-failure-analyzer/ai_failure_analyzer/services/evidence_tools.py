@@ -10,13 +10,31 @@ from typing import Dict, List, Optional, Sequence
 from urllib.parse import urljoin, urlparse
 
 import httpx
-from selectolax.parser import HTMLParser
+try:
+    from selectolax.parser import HTMLParser
+except ImportError:  # pragma: no cover - fallback for minimal environments
+    HTMLParser = None  # type: ignore[assignment]
 
 from ai_failure_analyzer.core.config import Settings
 
 logger = logging.getLogger(__name__)
 
 _IMG_EXT_RE = re.compile(r"\.(png|jpe?g|webp|gif|bmp)$", re.IGNORECASE)
+_TAG_RE = re.compile(r"<[^>]+>")
+_SPACE_RE = re.compile(r"[ \t]+")
+
+
+def _extract_attr_values(html_text: str, tag: str, attr: str) -> List[str]:
+    pattern = re.compile(
+        r"<%s\b[^>]*\b%s\s*=\s*['\"]([^'\"]+)['\"]" % (re.escape(tag), re.escape(attr)),
+        re.IGNORECASE,
+    )
+    values: List[str] = []
+    for match in pattern.finditer(html_text):
+        value = (match.group(1) or "").strip()
+        if value:
+            values.append(value)
+    return values
 
 
 def _truncate_text(text: str, max_chars: int) -> Dict[str, object]:
@@ -61,6 +79,14 @@ def _build_timeout(settings: Settings) -> httpx.Timeout:
 
 
 def _extract_image_urls_from_html(base_url: str, html_text: str) -> List[str]:
+    if HTMLParser is None:
+        urls = [_normalize_candidate_url(item, base_url) for item in _extract_attr_values(html_text, "img", "src")]
+        href_candidates = _extract_attr_values(html_text, "a", "href")
+        for item in href_candidates:
+            if _IMG_EXT_RE.search(item):
+                urls.append(_normalize_candidate_url(item, base_url))
+        return _dedup_keep_order([item for item in urls if item])
+
     parser = HTMLParser(html_text)
     urls: List[str] = []
 
@@ -76,14 +102,7 @@ def _extract_image_urls_from_html(base_url: str, html_text: str) -> List[str]:
         if _IMG_EXT_RE.search(href):
             urls.append(urljoin(base_url, href))
 
-    dedup: List[str] = []
-    seen = set()
-    for item in urls:
-        if item in seen:
-            continue
-        seen.add(item)
-        dedup.append(item)
-    return dedup
+    return _dedup_keep_order(urls)
 
 
 def _pick_urls_by_limit(urls: Sequence[str], max_images: int) -> List[str]:
@@ -102,6 +121,202 @@ def _safe_url_for_log(url: str) -> str:
     if len(path) > 64:
         path = path[:61] + "..."
     return "%s://%s%s" % (parsed.scheme or "?", parsed.netloc or "?", path)
+
+
+def _extract_text_from_html(html_text: str) -> str:
+    if HTMLParser is not None:
+        parser = HTMLParser(html_text)
+        if parser.body:
+            return parser.body.text(separator="\n", strip=True)
+        return parser.text(separator="\n")
+
+    no_tags = _TAG_RE.sub(" ", html_text)
+    normalized = _SPACE_RE.sub(" ", no_tags)
+    lines = [item.strip() for item in normalized.splitlines() if item.strip()]
+    return "\n".join(lines)
+
+
+def _normalize_candidate_url(url: str, base_url: Optional[str] = None) -> Optional[str]:
+    raw = (url or "").strip()
+    if not raw:
+        return None
+    if base_url:
+        raw = urljoin(base_url, raw)
+    parsed = urlparse(raw)
+    if parsed.scheme not in ("http", "https"):
+        return None
+    if not parsed.netloc:
+        return None
+    return parsed._replace(fragment="").geturl()
+
+
+def _looks_like_image_url(url: str) -> bool:
+    parsed = urlparse(url)
+    path = parsed.path or ""
+    return bool(_IMG_EXT_RE.search(path))
+
+
+def _dedup_keep_order(urls: Sequence[str]) -> List[str]:
+    dedup: List[str] = []
+    seen = set()
+    for item in urls:
+        if item in seen:
+            continue
+        seen.add(item)
+        dedup.append(item)
+    return dedup
+
+
+async def resolve_evidence_urls(
+    settings: Settings,
+    reports_url: Optional[str],
+    screenshot_urls: Optional[Sequence[str]],
+    screenshot_index_url: Optional[str],
+    max_screenshot_candidates: Optional[int] = None,
+) -> Dict[str, object]:
+    """B3：解析并归一化报告/截图 URL，输出稳定候选集合。"""
+    limit = (
+        max_screenshot_candidates
+        if max_screenshot_candidates is not None
+        else settings.aifa_screenshot_max_images
+    )
+    errors: List[Dict[str, str]] = []
+    warnings: List[str] = []
+    source = "none"
+
+    normalized_report_url: Optional[str] = None
+    if (reports_url or "").strip():
+        candidate = _normalize_candidate_url(str(reports_url))
+        if not candidate:
+            errors.append(
+                {"code": "invalid_reports_url", "field": "reports_url", "message": "reports_url 非法"}
+            )
+        else:
+            report_err = _is_allowed_url(candidate, settings)
+            if report_err:
+                errors.append(
+                    {
+                        "code": report_err,
+                        "field": "reports_url",
+                        "message": "reports_url 不满足白名单或安全规则",
+                    }
+                )
+            else:
+                normalized_report_url = candidate
+
+    normalized_screenshot_urls: List[str] = []
+    prefilled = screenshot_urls or []
+    prefilled_candidates: List[str] = []
+    prefilled_rejected = 0
+    for item in prefilled:
+        normalized = _normalize_candidate_url(str(item))
+        if not normalized:
+            prefilled_rejected += 1
+            continue
+        if _is_allowed_url(normalized, settings):
+            prefilled_rejected += 1
+            continue
+        prefilled_candidates.append(normalized)
+    prefilled_candidates = _dedup_keep_order(prefilled_candidates)
+
+    if prefilled_candidates:
+        source = "prefilled_urls"
+        normalized_screenshot_urls = prefilled_candidates
+    elif (screenshot_index_url or "").strip():
+        source = "index_page"
+        index_url = _normalize_candidate_url(str(screenshot_index_url))
+        if not index_url:
+            errors.append(
+                {
+                    "code": "invalid_screenshot_index_url",
+                    "field": "screenshot_index_url",
+                    "message": "screenshot_index_url 非法",
+                }
+            )
+        else:
+            index_err = _is_allowed_url(index_url, settings)
+            if index_err:
+                errors.append(
+                    {
+                        "code": index_err,
+                        "field": "screenshot_index_url",
+                        "message": "screenshot_index_url 不满足白名单或安全规则",
+                    }
+                )
+            else:
+                timeout = _build_timeout(settings)
+                async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+                    try:
+                        response = await client.get(index_url)
+                    except httpx.HTTPError as exc:
+                        errors.append(
+                            {
+                                "code": "screenshot_index_http_error",
+                                "field": "screenshot_index_url",
+                                "message": str(exc),
+                            }
+                        )
+                    else:
+                        if response.status_code >= 400:
+                            errors.append(
+                                {
+                                    "code": "screenshot_index_http_status_error",
+                                    "field": "screenshot_index_url",
+                                    "message": "status=%s" % response.status_code,
+                                }
+                            )
+                        else:
+                            content_type = (response.headers.get("content-type") or "").lower()
+                            if "html" not in content_type:
+                                errors.append(
+                                    {
+                                        "code": "screenshot_index_unsupported_content_type",
+                                        "field": "screenshot_index_url",
+                                        "message": content_type or "unknown",
+                                    }
+                                )
+                            else:
+                                extracted = _extract_image_urls_from_html(index_url, response.text)
+                                valid_candidates: List[str] = []
+                                for item in extracted:
+                                    normalized = _normalize_candidate_url(item)
+                                    if not normalized:
+                                        continue
+                                    if not _looks_like_image_url(normalized):
+                                        continue
+                                    if _is_allowed_url(normalized, settings):
+                                        continue
+                                    valid_candidates.append(normalized)
+                                normalized_screenshot_urls = _dedup_keep_order(valid_candidates)
+
+    if prefilled_rejected > 0:
+        warnings.append("prefilled_screenshot_urls_rejected=%s" % prefilled_rejected)
+
+    selected = _pick_urls_by_limit(normalized_screenshot_urls, limit)
+    if len(normalized_screenshot_urls) > len(selected):
+        warnings.append("screenshot_candidates_truncated")
+
+    if source == "none" and not selected:
+        errors.append(
+            {
+                "code": "missing_screenshot_urls",
+                "field": "screenshot_urls",
+                "message": "缺少可用截图 URL",
+            }
+        )
+
+    return {
+        "report_url": normalized_report_url,
+        "screenshot_urls": selected,
+        "url_resolution_meta": {
+            "source": source,
+            "input_count": len(prefilled),
+            "output_count": len(selected),
+            "truncated": len(normalized_screenshot_urls) > len(selected),
+            "warnings": warnings,
+        },
+        "errors": errors,
+    }
 
 
 async def _fetch_binary_image(
@@ -162,8 +377,7 @@ async def fetch_report_html(
         return {"error": "unsupported_content_type", "detail": content_type or "unknown"}
 
     raw = response.text
-    parser = HTMLParser(raw)
-    body_text = parser.body.text(separator="\n", strip=True) if parser.body else parser.text(separator="\n")
+    body_text = _extract_text_from_html(raw)
     result = _truncate_text(body_text, limit)
     logger.info(
         "B1 fetch_report_html ok url=%s elapsed_ms=%s raw_len=%s out_len=%s truncated=%s",
