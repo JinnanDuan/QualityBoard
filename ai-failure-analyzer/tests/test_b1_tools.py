@@ -5,6 +5,7 @@ import pytest
 
 from ai_failure_analyzer.core.config import Settings
 from ai_failure_analyzer.services.evidence_tools import (
+    build_success_urls_by_batch_replace,
     fetch_report_html,
     fetch_screenshot_b64,
     resolve_evidence_urls,
@@ -172,4 +173,32 @@ async def test_resolve_evidence_urls_rejects_unallowed_index_host() -> None:
     errors = result["errors"]
     assert isinstance(errors, list)
     assert any(item["code"] == "url_host_not_allowed" for item in errors)
+
+
+def test_build_success_urls_by_batch_replace_success() -> None:
+    result = build_success_urls_by_batch_replace(
+        settings=_settings(),
+        failed_urls=[
+            "https://example.com/reports/batch_20260401/case/screenshots/1.png",
+            "https://example.com/reports/batch_20260401/case/screenshots/2.png",
+        ],
+        failed_batch="20260401",
+        success_batch="20260331",
+    )
+    assert result["success_urls"] == [
+        "https://example.com/reports/batch_20260331/case/screenshots/1.png",
+        "https://example.com/reports/batch_20260331/case/screenshots/2.png",
+    ]
+    assert result["errors"] == []
+
+
+def test_build_success_urls_by_batch_replace_not_applicable() -> None:
+    result = build_success_urls_by_batch_replace(
+        settings=_settings(),
+        failed_urls=["https://example.com/reports/no_batch_marker/1.png"],
+        failed_batch="20260401",
+        success_batch="20260331",
+    )
+    assert result["success_urls"] == []
+    assert any(item["code"] == "batch_replace_not_applicable" for item in result["errors"])
 

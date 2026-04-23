@@ -8,6 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from ai_failure_analyzer.main import app
+from ai_failure_analyzer.services import analyze_service
 
 
 def _parse_sse(body: str) -> List[Tuple[str, Dict[str, Any]]]:
@@ -150,6 +151,54 @@ async def test_analyze_mock_keeps_spec_change_with_evidence(
                 "case_context": {
                     "case_name": "demo",
                     "success_screenshot_urls": ["http://example.com/a.png"],
+                },
+            },
+        )
+    assert r.status_code == 200
+    events = _parse_sse(r.text)
+    report_data = next(d for k, d in events if k == "report")
+    assert report_data["report"]["failure_category"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_analyze_mock_keeps_spec_change_with_enough_compare_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+    any_session_id: str,
+) -> None:
+    monkeypatch.setenv("AIFA_INTERNAL_TOKEN", "test-secret-token")
+    monkeypatch.setenv("AIFA_LLM_MOCK", "1")
+
+    async def fake_fetch_screenshot_b64(url: str, settings: object, **kwargs: object) -> Dict[str, Any]:
+        if "success" in url:
+            return {
+                "base64": "AAAA",
+                "mime": "image/png",
+                "size_bytes": 4,
+                "content_sha256_prefix": "same-hash",
+                "source_url": url,
+            }
+        return {
+            "base64": "BBBB",
+            "mime": "image/png",
+            "size_bytes": 4,
+            "content_sha256_prefix": "diff-hash",
+            "source_url": url,
+        }
+
+    monkeypatch.setattr(analyze_service, "fetch_screenshot_b64", fake_fetch_screenshot_b64)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post(
+            "/v1/analyze",
+            headers={"Authorization": "Bearer test-secret-token"},
+            json={
+                "session_id": any_session_id,
+                "mode": "initial",
+                "case_context": {
+                    "case_name": "demo",
+                    "screenshot_urls": ["http://example.com/fail-1.png"],
+                    "success_screenshot_urls": ["http://example.com/success-1.png"],
                 },
             },
         )
