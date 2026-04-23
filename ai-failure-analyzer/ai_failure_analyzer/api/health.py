@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends
 
 from ai_failure_analyzer.core.config import Settings, get_settings
+from ai_failure_analyzer.services.observability import get_metrics_snapshot
 
 router = APIRouter(tags=["health"])
 
@@ -25,3 +26,8 @@ async def healthz(settings: Settings = Depends(get_settings)) -> dict:
             "llm": llm_status,
         },
     }
+
+
+@router.get("/metrics")
+async def metrics() -> dict:
+    return get_metrics_snapshot()
