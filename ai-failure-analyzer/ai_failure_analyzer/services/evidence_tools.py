@@ -24,6 +24,10 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _SPACE_RE = re.compile(r"[ \t]+")
 
 
+class CodeHubAuthError(RuntimeError):
+    """CodeHub 鉴权失败（token 无效）."""
+
+
 def _extract_attr_values(html_text: str, tag: str, attr: str) -> List[str]:
     pattern = re.compile(
         r"<%s\b[^>]*\b%s\s*=\s*['\"]([^'\"]+)['\"]" % (re.escape(tag), re.escape(attr)),
@@ -75,6 +79,15 @@ def _build_timeout(settings: Settings) -> httpx.Timeout:
         read=settings.aifa_fetch_read_timeout_seconds,
         write=settings.aifa_fetch_read_timeout_seconds,
         pool=settings.aifa_fetch_connect_timeout_seconds,
+    )
+
+
+def _build_codehub_timeout(settings: Settings) -> httpx.Timeout:
+    return httpx.Timeout(
+        connect=settings.aifa_codehub_connect_timeout_seconds,
+        read=settings.aifa_codehub_read_timeout_seconds,
+        write=settings.aifa_codehub_read_timeout_seconds,
+        pool=settings.aifa_codehub_connect_timeout_seconds,
     )
 
 
@@ -243,6 +256,217 @@ def build_success_urls_by_batch_replace(
             "truncated": len(generated) > len(selected),
         },
         "errors": errors,
+    }
+
+
+def _is_codehub_repo_allowed(repo_url: str, settings: Settings) -> bool:
+    base = (settings.aifa_codehub_base_url or "").strip()
+    if not base:
+        return False
+    repo_host = (urlparse(repo_url).hostname or "").strip().lower()
+    base_host = (urlparse(base).hostname or "").strip().lower()
+    if not repo_host or not base_host:
+        return False
+    return repo_host == base_host
+
+
+def _repo_path_from_url(repo_url: str) -> Optional[str]:
+    parsed = urlparse(repo_url)
+    path = (parsed.path or "").strip("/")
+    if not path:
+        return None
+    if path.endswith(".git"):
+        path = path[:-4]
+    return path or None
+
+
+def _truncate_diff_by_lines(diff_text: str, max_lines: int) -> Dict[str, object]:
+    lines = diff_text.splitlines()
+    if max_lines <= 0:
+        return {"diff": "", "truncated": len(lines) > 0, "line_count": len(lines)}
+    if len(lines) <= max_lines:
+        return {"diff": diff_text, "truncated": False, "line_count": len(lines)}
+    selected = lines[:max_lines]
+    return {
+        "diff": "\n".join(selected),
+        "truncated": True,
+        "line_count": len(lines),
+    }
+
+
+def _normalize_commit_item(raw: Dict[str, object]) -> Dict[str, object]:
+    author = raw.get("author")
+    author_name = ""
+    if isinstance(author, dict):
+        author_name = str(author.get("name", "")).strip()
+    if not author_name:
+        author_name = str(raw.get("author_name", "")).strip()
+    if not author_name:
+        author_name = str(raw.get("committer_name", "")).strip()
+    files: List[str] = []
+    raw_files = raw.get("files")
+    if isinstance(raw_files, list):
+        for item in raw_files:
+            if isinstance(item, str):
+                text = item.strip()
+                if text:
+                    files.append(text)
+            elif isinstance(item, dict):
+                name = str(item.get("path", "") or item.get("file", "")).strip()
+                if name:
+                    files.append(name)
+    sha = str(raw.get("sha", "") or raw.get("id", "")).strip()
+    commit_time = str(
+        raw.get("time", "")
+        or raw.get("committed_at", "")
+        or raw.get("created_at", "")
+        or raw.get("timestamp", "")
+    ).strip()
+    message = str(raw.get("message", "") or raw.get("title", "")).strip()
+    return {
+        "sha": sha,
+        "author": author_name,
+        "time": commit_time,
+        "message": message,
+        "files": files,
+    }
+
+
+async def codehub_list_commits(
+    settings: Settings,
+    repo_url: str,
+    branch: str,
+    since: str,
+    until: str,
+    path_filters: Optional[Sequence[str]] = None,
+    limit: int = 30,
+) -> Dict[str, object]:
+    """B5: 调用 CodeHub 提交列表接口，输出标准 commits 列表。"""
+    base_url = (settings.aifa_codehub_base_url or "").strip().rstrip("/")
+    token = (settings.aifa_codehub_token or "").strip()
+    if not base_url or not token:
+        return {"error": "codehub_not_configured", "detail": "missing_base_url_or_token"}
+    if not _is_codehub_repo_allowed(repo_url, settings):
+        return {"error": "codehub_repo_not_allowed", "detail": _safe_url_for_log(repo_url)}
+    repo_path = _repo_path_from_url(repo_url)
+    if not repo_path:
+        return {"error": "invalid_repo_url", "detail": _safe_url_for_log(repo_url)}
+
+    timeout = _build_codehub_timeout(settings)
+    endpoint = "%s/api/v1/repos/%s/commits" % (base_url, repo_path)
+    safe_limit = max(1, min(100, limit))
+    params = {
+        "branch": branch,
+        "since": since,
+        "until": until,
+        "limit": safe_limit,
+    }
+    filters: List[str] = []
+    for item in path_filters or []:
+        text = str(item).strip()
+        if text:
+            filters.append(text)
+    if filters:
+        params["path_filters"] = ",".join(filters)
+    headers = {"Authorization": "Bearer %s" % token}
+
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        try:
+            resp = await client.get(endpoint, params=params, headers=headers)
+        except httpx.HTTPError as exc:
+            return {"error": "http_error", "detail": str(exc)}
+    if resp.status_code == 401:
+        raise CodeHubAuthError("codehub_unauthorized")
+    if resp.status_code >= 400:
+        return {"error": "http_status_error", "detail": "status=%s" % resp.status_code}
+    try:
+        payload = resp.json()
+    except ValueError:
+        return {"error": "invalid_json", "detail": "list_commits_response_not_json"}
+
+    raw_commits: List[Dict[str, object]] = []
+    if isinstance(payload, dict):
+        c = payload.get("commits")
+        if isinstance(c, list):
+            raw_commits = [item for item in c if isinstance(item, dict)]
+    elif isinstance(payload, list):
+        raw_commits = [item for item in payload if isinstance(item, dict)]
+
+    commits = [_normalize_commit_item(item) for item in raw_commits]
+    commits = [item for item in commits if str(item.get("sha", "")).strip()]
+    return {"commits": commits}
+
+
+async def codehub_get_commit_diff(
+    settings: Settings,
+    repo_url: str,
+    sha: str,
+    max_lines: int = 500,
+) -> Dict[str, object]:
+    """B5: 调用 CodeHub commit diff 接口，并做行级截断。"""
+    base_url = (settings.aifa_codehub_base_url or "").strip().rstrip("/")
+    token = (settings.aifa_codehub_token or "").strip()
+    if not base_url or not token:
+        return {"error": "codehub_not_configured", "detail": "missing_base_url_or_token"}
+    if not _is_codehub_repo_allowed(repo_url, settings):
+        return {"error": "codehub_repo_not_allowed", "detail": _safe_url_for_log(repo_url)}
+    repo_path = _repo_path_from_url(repo_url)
+    commit_sha = (sha or "").strip()
+    if not repo_path or not commit_sha:
+        return {"error": "invalid_arguments", "detail": "repo_or_sha_missing"}
+
+    timeout = _build_codehub_timeout(settings)
+    endpoint = "%s/api/v1/repos/%s/commits/%s/diff" % (base_url, repo_path, commit_sha)
+    headers = {"Authorization": "Bearer %s" % token}
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        try:
+            resp = await client.get(endpoint, headers=headers)
+        except httpx.HTTPError as exc:
+            return {"error": "http_error", "detail": str(exc)}
+    if resp.status_code == 401:
+        raise CodeHubAuthError("codehub_unauthorized")
+    if resp.status_code >= 400:
+        return {"error": "http_status_error", "detail": "status=%s" % resp.status_code}
+    try:
+        payload = resp.json()
+    except ValueError:
+        return {"error": "invalid_json", "detail": "get_commit_diff_response_not_json"}
+
+    diff_text = ""
+    files_changed: List[str] = []
+    if isinstance(payload, dict):
+        raw_diff = payload.get("diff")
+        if isinstance(raw_diff, str):
+            diff_text = raw_diff
+        raw_files = payload.get("files_changed")
+        if isinstance(raw_files, list):
+            for item in raw_files:
+                if isinstance(item, str) and item.strip():
+                    files_changed.append(item.strip())
+    elif isinstance(payload, list):
+        chunks: List[str] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            part = item.get("diff")
+            if isinstance(part, str) and part.strip():
+                chunks.append(part.strip())
+            filename = str(item.get("new_path", "") or item.get("old_path", "")).strip()
+            if filename:
+                files_changed.append(filename)
+        diff_text = "\n".join(chunks)
+
+    if not diff_text and isinstance(payload, dict):
+        alt = payload.get("patch")
+        if isinstance(alt, str):
+            diff_text = alt
+
+    trunc = _truncate_diff_by_lines(diff_text, max_lines)
+    return {
+        "diff": trunc["diff"],
+        "truncated": trunc["truncated"],
+        "line_count": trunc["line_count"],
+        "files_changed": _dedup_keep_order(files_changed),
     }
 
 
