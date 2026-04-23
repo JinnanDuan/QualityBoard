@@ -48,6 +48,9 @@ class TracePayload(BaseModel):
     tool_calls: int = 0
     llm_input_tokens: int = 0
     llm_output_tokens: int = 0
+    estimated_cost: float = 0.0
+    token_budget_triggered: bool = False
+    degrade_reasons: List[str] = Field(default_factory=list)
     elapsed_ms: int = 0
 
 

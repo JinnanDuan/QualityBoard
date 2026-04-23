@@ -230,6 +230,33 @@ def _safe_summary_limit(text: str, limit: int) -> str:
     return text[:limit] + "\n…(已截断)"
 
 
+def _total_tokens(trace: TracePayload) -> int:
+    return int(trace.llm_input_tokens) + int(trace.llm_output_tokens)
+
+
+def _calculate_estimated_cost(trace: TracePayload, settings: Settings) -> float:
+    in_cost = (max(0, int(trace.llm_input_tokens)) / 1000.0) * float(settings.aifa_price_per_1k_input)
+    out_cost = (max(0, int(trace.llm_output_tokens)) / 1000.0) * float(settings.aifa_price_per_1k_output)
+    return round(in_cost + out_cost, 6)
+
+
+def _mark_token_budget_triggered(
+    trace: TracePayload,
+    settings: Settings,
+    data_gaps: List[str],
+) -> bool:
+    max_tokens = max(1, int(settings.aifa_max_tokens_per_request))
+    if _total_tokens(trace) < max_tokens:
+        return False
+    trace.token_budget_triggered = True
+    reason = "单请求 token 超过上限，已触发熔断并降级为 partial"
+    if reason not in trace.degrade_reasons:
+        trace.degrade_reasons.append(reason)
+    if reason not in data_gaps:
+        data_gaps.append(reason)
+    return True
+
+
 def _build_history_summary(payload: AnalyzeRequest) -> Dict[str, object]:
     recent = payload.recent_executions or []
     total = len(recent)
@@ -961,8 +988,19 @@ async def stream_analyze(
     yield format_sse("progress", {"stage": "synthesize_started", "message": "正在生成归因结论..."})
     synth_start = time.perf_counter()
     inner: ReportInner
+    token_budget_exceeded = _mark_token_budget_triggered(trace, settings, all_data_gaps)
 
-    if settings.aifa_llm_mock:
+    if token_budget_exceeded:
+        inner = ReportInner(
+            failure_category=CATEGORY_UNKNOWN,  # type: ignore[arg-type]
+            summary="已触发 token 成本保护，返回降级结论",
+            detailed_reason="当前请求的 token 消耗达到上限，系统已停止后续高成本模型调用并返回部分结果。请缩小分析范围后重试。",
+            confidence=0.2,
+            data_gaps=list(all_data_gaps),
+            evidence=[],
+            stage_timeline=[],
+        )
+    elif settings.aifa_llm_mock:
         inner = _build_mock_inner_from_summaries(
             screenshot_evidence_sufficiency == "enough",
             list(all_data_gaps),
@@ -1008,6 +1046,7 @@ async def stream_analyze(
             if usage:
                 trace.llm_input_tokens += usage.prompt_tokens or 0
                 trace.llm_output_tokens += usage.completion_tokens or 0
+            _mark_token_budget_triggered(trace, settings, all_data_gaps)
         except (AuthenticationError, APIError, json.JSONDecodeError, ValueError, IndexError) as e:
             logger.warning(
                 "LLM 调用失败 request_id=%s session_id=%s: %s",
@@ -1058,6 +1097,7 @@ async def stream_analyze(
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     trace.elapsed_ms = elapsed_ms
+    trace.estimated_cost = _calculate_estimated_cost(trace, settings)
     status = "ok"
     if len(inner.data_gaps) > 0:
         status = "partial"
