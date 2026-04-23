@@ -193,6 +193,16 @@ async def get_history_list(
     code_branch: Optional[List[str]] = Query(None),    # 筛选代码分支（多选）
     failure_owner: Optional[List[str]] = Query(None),  # 筛选失败跟踪人（多选）
     failed_type: Optional[List[str]] = Query(None),    # 筛选失败原因（多选）
+    start_time_contains: Optional[str] = Query(None, max_length=200),
+    subtask_contains: Optional[str] = Query(None, max_length=200),
+    case_name_contains: Optional[str] = Query(None, max_length=200),
+    main_module_contains: Optional[str] = Query(None, max_length=200),
+    case_result_contains: Optional[str] = Query(None, max_length=200),
+    case_level_contains: Optional[str] = Query(None, max_length=200),
+    platform_contains: Optional[str] = Query(None, max_length=200),
+    code_branch_contains: Optional[str] = Query(None, max_length=200),
+    failure_owner_contains: Optional[str] = Query(None, max_length=200),
+    failed_type_contains: Optional[str] = Query(None, max_length=200),
     sort_field: Optional[str] = Query(None),           # 排序列
     sort_order: Optional[str] = Query(None),           # 排序方向：asc / desc
     # Depends(get_db) 是 FastAPI 的核心特性"依赖注入":
@@ -219,6 +229,16 @@ async def get_history_list(
         code_branch=code_branch,
         failure_owner=failure_owner,
         failed_type=failed_type,
+        start_time_contains=start_time_contains,
+        subtask_contains=subtask_contains,
+        case_name_contains=case_name_contains,
+        main_module_contains=main_module_contains,
+        case_result_contains=case_result_contains,
+        case_level_contains=case_level_contains,
+        platform_contains=platform_contains,
+        code_branch_contains=code_branch_contains,
+        failure_owner_contains=failure_owner_contains,
+        failed_type_contains=failed_type_contains,
         sort_field=sort_field,
         sort_order=sort_order,
     )

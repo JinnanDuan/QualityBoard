@@ -50,9 +50,9 @@
 
 **适用接口**：`GET /api/v1/history`（`list_history` Service）
 
-**触发条件**：用户**未选择** `start_time` 时即注入（与是否选择其他筛选项无关）
+**触发条件**：用户**未选择** `start_time`（IN）**且**未传非空 **`start_time_contains`** 时即注入（与是否选择其他筛选项无关，另受 §3.1.1 用例名例外约束）
 
-- 覆盖场景：仅选 failed_type、仅选 case_result、仅选 platform、仅选 main_module 等任意组合，只要未选 start_time 均注入
+- 覆盖场景：仅选 failed_type、仅选 case_result、仅选 platform、仅选 main_module 等任意组合，只要未显式约束轮次（见上）均注入
 - 目的：避免任意「无批次」筛选导致全表/大范围扫描超时
 
 **注入逻辑**：
@@ -62,7 +62,10 @@
 3. N 的取值：30（常量，可配置）
 4. 将查询结果作为 `start_time IN (...)` 条件注入主查询，与用户选择的其他条件 AND 组合
 
-**不触发**：若用户已选 start_time，则按用户选择查询，不注入。
+**不触发**：
+
+- 若用户已选 `start_time`（非空列表），则按用户选择查询，不注入。
+- 若 **`start_time_contains` 非空**（经 trim）：视为已显式约束轮次（子串 `LIKE`），**不注入**默认 N 批，避免与「仅按批次关键字查全库时间范围」的意图冲突。
 
 ### 3.1.1 例外：已选用例名且无批次（全时间范围）
 
@@ -71,9 +74,11 @@
 **条件**（同时满足）：
 
 1. 请求中 **`start_time` 未传或为空列表**（用户未选批次）；
-2. 请求中 **`case_name` 为非空列表**，且经 trim 后至少包含一个**非空**用例名字符串。
+2. 满足以下**任一**即视为「已选用例名筛选」：
+   - 请求中 **`case_name` 为非空列表**，且经 trim 后至少包含一个**非空**用例名字符串；或
+   - 请求中 **`case_name_contains` 非空**（经 trim 后非空字符串）。
 
-**行为**：**不执行** §3.1 的「最近 N 批」注入逻辑；主查询仅在其它已选条件（含 `case_name IN (...)`）下按分页执行，时间范围为库内全表（仍受索引、超时与分页限制）。
+**行为**：**不执行** §3.1 的「最近 N 批」注入逻辑；主查询仅在其它已选条件（含 `case_name IN (...)` 或 `case_name LIKE '%…%'`）下按分页执行，时间范围为库内全表（仍受索引、超时与分页限制）。
 
 **不满足上述条件时**：仍按 §3.1，在未选 `start_time` 时注入最近 N 批。
 
@@ -81,13 +86,13 @@
 
 ### 3.2 前端：批次筛选 placeholder 提示
 
-**修改位置**：`HistoryPage.tsx` 中批次（start_time）的 `Select` 组件
+**修改位置**：历史页字符串筛选项由 `HistoryStringMultiFilter.tsx` 承载；批次（`start_time`）的占位文案由 `HistoryPage` 传入。
 
 **实现要求**：
 
 | 项目 | 规约 |
 |------|------|
-| placeholder | 将「全部」改为「不选则默认最近30批」 |
+| placeholder | 非钻取模式下将默认占位设为「不选则默认最近30批」（与列表默认注入一致） |
 | 目的 | 告知用户未选批次时的默认行为，避免误解 |
 
 ### 3.3 前端：fetchData 错误处理
@@ -165,3 +170,5 @@ flowchart TD
 | 1.2 | 2026-03-23 | 新增 §3.1.1：已选非空 case_name 且无 start_time 时不注入 N 批（配合 spec/12 用例钻取） |
 | 1.3 | 2026-04-11 | §3.1 末新增关联规约：分组执行历史默认批次注入见 spec/14（表 pipeline_overview） |
 | 1.4 | 2026-04-11 | 关联规约修订：分组执行历史默认 N 批与 History 一致为 **30**（原 spec/14 曾约定 20） |
+| 1.5 | 2026-04-22 | §3.1.1：`case_name_contains` 与「非空 case_name IN」同等触发「不注入 N 批」；§3.2 占位实现位置改为 `HistoryStringMultiFilter` + `HistoryPage` 传参 |
+| 1.6 | 2026-04-22 | §3.1「不触发」：非空 `start_time_contains` 时不注入默认 N 批（`list_history` 中 `_skip_default_start_time_injection`） |

@@ -24,6 +24,7 @@ import {
 } from "antd";
 import { EyeOutlined } from "@ant-design/icons";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
+import { HistoryStringMultiFilter } from "./HistoryStringMultiFilter";
 import {
   historyApi,
   type HistoryItem,
@@ -281,6 +282,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   /** 钻取页首次有效 URL 快照，用于「筛选重置」恢复用例名/平台/分支 */
   const drilldownAnchorRef = useRef<{
     case_name?: string[];
+    case_name_contains?: string;
     platform?: string[];
     code_branch?: string[];
   } | null>(null);
@@ -295,6 +297,12 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       const vals = searchParams.getAll(key);
       if (vals.length === 0) return undefined;
       return vals.map((v) => parseInt(v, 10)).filter((n) => !isNaN(n));
+    };
+    const getTrimmed = (key: string) => {
+      const v = searchParams.get(key);
+      if (v == null) return undefined;
+      const t = String(v).trim();
+      return t ? t : undefined;
     };
     return {
       page: searchParams.get("page") ? parseInt(searchParams.get("page")!, 10) : 1,
@@ -312,6 +320,16 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       code_branch: getList("code_branch"),
       failure_owner: getList("failure_owner"),
       failed_type: getList("failed_type"),
+      start_time_contains: getTrimmed("start_time_contains"),
+      subtask_contains: getTrimmed("subtask_contains"),
+      case_name_contains: getTrimmed("case_name_contains"),
+      main_module_contains: getTrimmed("main_module_contains"),
+      case_result_contains: getTrimmed("case_result_contains"),
+      case_level_contains: getTrimmed("case_level_contains"),
+      platform_contains: getTrimmed("platform_contains"),
+      code_branch_contains: getTrimmed("code_branch_contains"),
+      failure_owner_contains: getTrimmed("failure_owner_contains"),
+      failed_type_contains: getTrimmed("failed_type_contains"),
       sort_field: searchParams.get("sort_field") || undefined,
       sort_order: searchParams.get("sort_order") || undefined,
     };
@@ -337,6 +355,21 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       appendList("code_branch", params.code_branch);
       appendList("failure_owner", params.failure_owner);
       appendList("failed_type", params.failed_type);
+      const appendTrimmed = (key: string, val?: string) => {
+        if (val == null) return;
+        const t = String(val).trim();
+        if (t) next.set(key, t);
+      };
+      appendTrimmed("start_time_contains", params.start_time_contains);
+      appendTrimmed("subtask_contains", params.subtask_contains);
+      appendTrimmed("case_name_contains", params.case_name_contains);
+      appendTrimmed("main_module_contains", params.main_module_contains);
+      appendTrimmed("case_result_contains", params.case_result_contains);
+      appendTrimmed("case_level_contains", params.case_level_contains);
+      appendTrimmed("platform_contains", params.platform_contains);
+      appendTrimmed("code_branch_contains", params.code_branch_contains);
+      appendTrimmed("failure_owner_contains", params.failure_owner_contains);
+      appendTrimmed("failed_type_contains", params.failed_type_contains);
       if (params.sort_field) next.set("sort_field", params.sort_field);
       if (params.sort_order) next.set("sort_order", params.sort_order);
       setSearchParams(next, { replace: true });
@@ -407,7 +440,9 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       return;
     }
     const params = paramsFromUrl();
-    const hasCase = params.case_name?.some((n) => n && String(n).trim());
+    const hasCase =
+      !!params.case_name?.some((n) => n && String(n).trim()) ||
+      !!(params.case_name_contains && String(params.case_name_contains).trim());
     if (hasCase) {
       drilldownInvalidWarnedRef.current = false;
     } else if (!drilldownInvalidWarnedRef.current) {
@@ -430,6 +465,16 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       code_branch: params.code_branch,
       failure_owner: params.failure_owner,
       failed_type: params.failed_type,
+      start_time_contains: params.start_time_contains,
+      subtask_contains: params.subtask_contains,
+      case_name_contains: params.case_name_contains,
+      main_module_contains: params.main_module_contains,
+      case_result_contains: params.case_result_contains,
+      case_level_contains: params.case_level_contains,
+      platform_contains: params.platform_contains,
+      code_branch_contains: params.code_branch_contains,
+      failure_owner_contains: params.failure_owner_contains,
+      failed_type_contains: params.failed_type_contains,
     });
     setPagination({ current: params.page ?? 1, pageSize: params.page_size ?? 20 });
   }, [searchParams]);
@@ -437,7 +482,9 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   useEffect(() => {
     const params = paramsFromUrl();
     if (drilldown) {
-      const hasCase = params.case_name?.some((n) => n && String(n).trim());
+      const hasCase =
+        !!params.case_name?.some((n) => n && String(n).trim()) ||
+        !!(params.case_name_contains && String(params.case_name_contains).trim());
       if (!hasCase) {
         setData([]);
         setTotal(0);
@@ -446,6 +493,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       if (drilldownAnchorRef.current === null) {
         drilldownAnchorRef.current = {
           case_name: params.case_name,
+          case_name_contains: params.case_name_contains,
           platform: params.platform,
           code_branch: params.code_branch,
         };
@@ -475,20 +523,45 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
 
   const handleFilterChange = () => {
     const values = form.getFieldsValue();
+    const inOrContains = (arr: string[] | undefined, c: string | undefined) => {
+      if (arr?.length) return { list: arr as string[], contains: undefined };
+      const t = c != null && String(c).trim();
+      return { list: undefined, contains: t ? String(c).trim() : undefined };
+    };
+    const st = inOrContains(values.start_time, values.start_time_contains);
+    const su = inOrContains(values.subtask, values.subtask_contains);
+    const cn = inOrContains(values.case_name, values.case_name_contains);
+    const mm = inOrContains(values.main_module, values.main_module_contains);
+    const cr = inOrContains(values.case_result, values.case_result_contains);
+    const cl = inOrContains(values.case_level, values.case_level_contains);
+    const pl = inOrContains(values.platform, values.platform_contains);
+    const cb = inOrContains(values.code_branch, values.code_branch_contains);
+    const fo = inOrContains(values.failure_owner, values.failure_owner_contains);
+    const ft = inOrContains(values.failed_type, values.failed_type_contains);
     const params: HistoryQueryParams = {
       page: 1,
       page_size: pagination.pageSize,
-      start_time: values.start_time?.length ? values.start_time : undefined,
-      subtask: values.subtask?.length ? values.subtask : undefined,
-      case_name: values.case_name?.length ? values.case_name : undefined,
-      main_module: values.main_module?.length ? values.main_module : undefined,
-      case_result: values.case_result?.length ? values.case_result : undefined,
-      case_level: values.case_level?.length ? values.case_level : undefined,
+      start_time: st.list,
+      start_time_contains: st.contains,
+      subtask: su.list,
+      subtask_contains: su.contains,
+      case_name: cn.list,
+      case_name_contains: cn.contains,
+      main_module: mm.list,
+      main_module_contains: mm.contains,
+      case_result: cr.list,
+      case_result_contains: cr.contains,
+      case_level: cl.list,
+      case_level_contains: cl.contains,
       analyzed: values.analyzed?.length ? values.analyzed : undefined,
-      platform: values.platform?.length ? values.platform : undefined,
-      code_branch: values.code_branch?.length ? values.code_branch : undefined,
-      failure_owner: values.failure_owner?.length ? values.failure_owner : undefined,
-      failed_type: values.failed_type?.length ? values.failed_type : undefined,
+      platform: pl.list,
+      platform_contains: pl.contains,
+      code_branch: cb.list,
+      code_branch_contains: cb.contains,
+      failure_owner: fo.list,
+      failure_owner_contains: fo.contains,
+      failed_type: ft.list,
+      failed_type_contains: ft.contains,
     };
     syncParamsToUrl(params);
     setPagination((p) => ({ ...p, current: 1 }));
@@ -500,6 +573,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
         page: 1,
         page_size: pagination.pageSize,
         case_name: drilldownAnchorRef.current.case_name,
+        case_name_contains: drilldownAnchorRef.current.case_name_contains,
         platform: drilldownAnchorRef.current.platform,
         code_branch: drilldownAnchorRef.current.code_branch,
       });
@@ -1304,7 +1378,11 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
     if (!drilldown) return "";
     const p = paramsFromUrl();
     const names = p.case_name?.filter((n) => n && String(n).trim()) ?? [];
-    return names.length ? names.join("、") : "";
+    const sub = p.case_name_contains?.trim();
+    if (names.length && sub) return `${names.join("、")}；子串：${sub}`;
+    if (names.length) return names.join("、");
+    if (sub) return `子串：${sub}`;
+    return "";
   })();
 
   return (
@@ -1325,114 +1403,71 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       <Form form={form} style={{ marginBottom: 16 }} disabled={loading}>
         <Row gutter={16}>
           <Col span={4}>
-            <Form.Item name="start_time" label="批次" style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder={
-                  drilldown
-                    ? "未选批次则查询全时间范围"
-                    : "不选则默认最近30批"
-                }
-                maxTagCount="responsive"
-                loading={optionsLoading}
-                showSearch
-                autoClearSearchValue={false}
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                }
-                options={options?.start_time?.map((v) => ({ label: v, value: v })) ?? []}
-              />
-            </Form.Item>
+            <HistoryStringMultiFilter
+              name="start_time"
+              label="批次"
+              form={form}
+              disabled={loading}
+              loading={optionsLoading}
+              placeholder={drilldown ? "未选批次则查询全时间范围" : "不选则默认最近30批"}
+              options={options?.start_time?.map((v) => ({ label: v, value: v })) ?? []}
+            />
           </Col>
           <Col span={4}>
-            <Form.Item name="subtask" label="分组" style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="全部"
-                maxTagCount="responsive"
-                loading={optionsLoading}
-                showSearch
-                autoClearSearchValue={false}
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                }
-                options={options?.subtask?.map((v) => ({ label: v, value: v })) ?? []}
-              />
-            </Form.Item>
+            <HistoryStringMultiFilter
+              name="subtask"
+              label="分组"
+              form={form}
+              disabled={loading}
+              loading={optionsLoading}
+              options={options?.subtask?.map((v) => ({ label: v, value: v })) ?? []}
+            />
           </Col>
           <Col span={4}>
-            <Form.Item name="case_name" label="用例名" style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="全部"
-                maxTagCount="responsive"
-                loading={optionsLoading}
-                showSearch
-                autoClearSearchValue={false}
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                }
-                options={options?.case_name?.map((v) => ({ label: v, value: v })) ?? []}
-              />
-            </Form.Item>
+            <HistoryStringMultiFilter
+              name="case_name"
+              label="用例名"
+              form={form}
+              disabled={loading}
+              loading={optionsLoading}
+              options={options?.case_name?.map((v) => ({ label: v, value: v })) ?? []}
+            />
           </Col>
           <Col span={4}>
-            <Form.Item name="main_module" label="主模块" style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="全部"
-                maxTagCount="responsive"
-                loading={optionsLoading}
-                showSearch
-                autoClearSearchValue={false}
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                }
-                options={options?.main_module?.map((v) => ({ label: v, value: v })) ?? []}
-              />
-            </Form.Item>
+            <HistoryStringMultiFilter
+              name="main_module"
+              label="主模块"
+              form={form}
+              disabled={loading}
+              loading={optionsLoading}
+              options={options?.main_module?.map((v) => ({ label: v, value: v })) ?? []}
+            />
           </Col>
           <Col span={4}>
-            <Form.Item name="case_result" label="执行结果" style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="全部"
-                maxTagCount="responsive"
-                showSearch
-                autoClearSearchValue={false}
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                }
-                options={options?.case_result?.map((v) => ({ label: v, value: v })) ?? [
+            <HistoryStringMultiFilter
+              name="case_result"
+              label="执行结果"
+              form={form}
+              disabled={loading}
+              options={
+                options?.case_result?.map((v) => ({ label: v, value: v })) ?? [
                   { label: "passed", value: "passed" },
                   { label: "failed", value: "failed" },
                   { label: "error", value: "error" },
                   { label: "skip", value: "skip" },
-                ]}
-              />
-            </Form.Item>
+                ]
+              }
+            />
           </Col>
           <Col span={4}>
-            <Form.Item name="case_level" label="用例级别" style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="全部"
-                maxTagCount="responsive"
-                loading={optionsLoading}
-                showSearch
-                autoClearSearchValue={false}
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                }
-                options={options?.case_level?.map((v) => ({ label: v, value: v })) ?? []}
-              />
-            </Form.Item>
+            <HistoryStringMultiFilter
+              name="case_level"
+              label="用例级别"
+              form={form}
+              disabled={loading}
+              loading={optionsLoading}
+              options={options?.case_level?.map((v) => ({ label: v, value: v })) ?? []}
+            />
           </Col>
           <Col span={4}>
             <Form.Item name="analyzed" label="是否已分析" style={{ marginBottom: 8 }}>
@@ -1454,72 +1489,44 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
             </Form.Item>
           </Col>
           <Col span={4}>
-            <Form.Item name="platform" label="平台" style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="全部"
-                maxTagCount="responsive"
-                loading={optionsLoading}
-                showSearch
-                autoClearSearchValue={false}
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                }
-                options={options?.platform?.map((v) => ({ label: v, value: v })) ?? []}
-              />
-            </Form.Item>
+            <HistoryStringMultiFilter
+              name="platform"
+              label="平台"
+              form={form}
+              disabled={loading}
+              loading={optionsLoading}
+              options={options?.platform?.map((v) => ({ label: v, value: v })) ?? []}
+            />
           </Col>
           <Col span={4}>
-            <Form.Item name="code_branch" label="代码分支" style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="全部"
-                maxTagCount="responsive"
-                loading={optionsLoading}
-                showSearch
-                autoClearSearchValue={false}
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                }
-                options={options?.code_branch?.map((v) => ({ label: v, value: v })) ?? []}
-              />
-            </Form.Item>
+            <HistoryStringMultiFilter
+              name="code_branch"
+              label="代码分支"
+              form={form}
+              disabled={loading}
+              loading={optionsLoading}
+              options={options?.code_branch?.map((v) => ({ label: v, value: v })) ?? []}
+            />
           </Col>
           <Col span={4}>
-            <Form.Item name="failure_owner" label="跟踪人" style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="全部"
-                maxTagCount="responsive"
-                loading={optionsLoading}
-                showSearch
-                autoClearSearchValue={false}
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                }
-                options={options?.failure_owner?.map((v) => ({ label: v, value: v })) ?? []}
-              />
-            </Form.Item>
+            <HistoryStringMultiFilter
+              name="failure_owner"
+              label="跟踪人"
+              form={form}
+              disabled={loading}
+              loading={optionsLoading}
+              options={options?.failure_owner?.map((v) => ({ label: v, value: v })) ?? []}
+            />
           </Col>
           <Col span={4}>
-            <Form.Item name="failed_type" label="失败原因" style={{ marginBottom: 8 }}>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="全部"
-                maxTagCount="responsive"
-                loading={optionsLoading}
-                showSearch
-                autoClearSearchValue={false}
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                }
-                options={options?.failed_type?.map((v) => ({ label: v, value: v })) ?? []}
-              />
-            </Form.Item>
+            <HistoryStringMultiFilter
+              name="failed_type"
+              label="失败原因"
+              form={form}
+              disabled={loading}
+              loading={optionsLoading}
+              options={options?.failed_type?.map((v) => ({ label: v, value: v })) ?? []}
+            />
           </Col>
         </Row>
         <Row gutter={16} style={{ marginTop: 8 }}>

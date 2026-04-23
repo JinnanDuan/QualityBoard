@@ -91,7 +91,7 @@
 
 ### 3.2 请求处理流程
 
-以 `GET /api/v1/history?page=1&case_result=failed` 为例：
+以 `GET /api/v1/history?page=1&case_result=failed` 为例（另可带各维度 `*_contains` 子串参数，与同维多选互斥，由 `HistoryQuery` / `HistoryQueryParams` 承载）：
 
 ```
 浏览器

@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import List, Optional
 
 # BaseModel: Pydantic 的基类，所有 Schema 都继承它以获得自动校验能力
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # PageRequest: 我们自定义的分页请求基类（包含 page 和 page_size 字段）
 from backend.schemas.common import PageRequest
@@ -72,6 +72,17 @@ class HistoryQuery(PageRequest):
     code_branch: Optional[List[str]] = None      # 按代码分支筛选（多选）
     failure_owner: Optional[List[str]] = None    # 按失败跟踪人筛选（多选）
     failed_type: Optional[List[str]] = None      # 按失败原因筛选（多选）
+    # 子串筛选（与对应 IN 列表互斥；Service 层有非空 *_contains 时忽略同维度的 IN）
+    start_time_contains: Optional[str] = Field(None, max_length=200)
+    subtask_contains: Optional[str] = Field(None, max_length=200)
+    case_name_contains: Optional[str] = Field(None, max_length=200)
+    main_module_contains: Optional[str] = Field(None, max_length=200)
+    case_result_contains: Optional[str] = Field(None, max_length=200)
+    case_level_contains: Optional[str] = Field(None, max_length=200)
+    platform_contains: Optional[str] = Field(None, max_length=200)
+    code_branch_contains: Optional[str] = Field(None, max_length=200)
+    failure_owner_contains: Optional[str] = Field(None, max_length=200)
+    failed_type_contains: Optional[str] = Field(None, max_length=200)
     sort_field: Optional[str] = None             # 排序列（如 start_time, case_name）
     sort_order: Optional[str] = None             # 排序方向：asc / desc
 
