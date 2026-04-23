@@ -53,6 +53,38 @@ class Settings(BaseSettings):
         default_factory=list,
         validation_alias="AIFA_FETCH_ALLOWED_HOSTS",
     )
+    aifa_codehub_base_url: Optional[str] = Field(
+        default=None,
+        validation_alias="AIFA_CODEHUB_BASE_URL",
+    )
+    aifa_codehub_token: Optional[str] = Field(
+        default=None,
+        validation_alias="AIFA_CODEHUB_TOKEN",
+    )
+    aifa_codehub_connect_timeout_seconds: float = Field(
+        default=3.0,
+        validation_alias="AIFA_CODEHUB_CONNECT_TIMEOUT_SECONDS",
+    )
+    aifa_codehub_read_timeout_seconds: float = Field(
+        default=15.0,
+        validation_alias="AIFA_CODEHUB_READ_TIMEOUT_SECONDS",
+    )
+    aifa_codehub_list_limit: int = Field(
+        default=30,
+        validation_alias="AIFA_CODEHUB_LIST_LIMIT",
+    )
+    aifa_codehub_diff_max_lines: int = Field(
+        default=500,
+        validation_alias="AIFA_CODEHUB_DIFF_MAX_LINES",
+    )
+    aifa_codehub_diff_top_n: int = Field(
+        default=5,
+        validation_alias="AIFA_CODEHUB_DIFF_TOP_N",
+    )
+    aifa_codehub_fallback_window_days: int = Field(
+        default=7,
+        validation_alias="AIFA_CODEHUB_FALLBACK_WINDOW_DAYS",
+    )
 
     @field_validator("aifa_llm_mock", mode="before")
     @classmethod

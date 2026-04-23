@@ -43,6 +43,7 @@ pip install .
 - **必须（生产）**：`AIFA_INTERNAL_TOKEN`
 - **真实 LLM**：`AIFA_LLM_BASE_URL`、`AIFA_LLM_API_KEY`、`AIFA_LLM_MODEL`（Mock 模式下可不填）
 - **CI / 无密钥**：`AIFA_LLM_MOCK=1`
+- **CodeHub（B5）**：`AIFA_CODEHUB_BASE_URL`、`AIFA_CODEHUB_TOKEN`（未配置时自动降级跳过 code_blame）
 
 ## 启动
 

@@ -244,6 +244,76 @@ async def test_follow_up_with_existing_session(
 
 
 @pytest.mark.asyncio
+async def test_code_blame_prefers_last_success_batch_window(
+    monkeypatch: pytest.MonkeyPatch,
+    any_session_id: str,
+) -> None:
+    monkeypatch.setenv("AIFA_INTERNAL_TOKEN", "test-secret-token")
+    monkeypatch.setenv("AIFA_LLM_MOCK", "1")
+    monkeypatch.setenv("AIFA_CODEHUB_BASE_URL", "https://codehub.example.com")
+    monkeypatch.setenv("AIFA_CODEHUB_TOKEN", "token")
+    captured: Dict[str, str] = {}
+
+    async def fake_list(
+        settings: object,
+        repo_url: str,
+        branch: str,
+        since: str,
+        until: str,
+        path_filters: object = None,
+        limit: int = 30,
+    ) -> Dict[str, Any]:
+        captured["since"] = since
+        captured["until"] = until
+        return {
+            "commits": [
+                {
+                    "sha": "abc123",
+                    "author": "alice",
+                    "time": "2026-04-22T10:00:00",
+                    "message": "fix",
+                    "files": ["src/auth/a.py"],
+                }
+            ]
+        }
+
+    async def fake_diff(
+        settings: object,
+        repo_url: str,
+        sha: str,
+        max_lines: int = 500,
+    ) -> Dict[str, Any]:
+        return {"diff": "+fix", "truncated": False, "line_count": 1, "files_changed": ["src/auth/a.py"]}
+
+    monkeypatch.setattr(analyze_service, "codehub_list_commits", fake_list)
+    monkeypatch.setattr(analyze_service, "codehub_get_commit_diff", fake_diff)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post(
+            "/v1/analyze",
+            headers={"Authorization": "Bearer test-secret-token"},
+            json={
+                "session_id": any_session_id,
+                "mode": "initial",
+                "case_context": {
+                    "case_name": "demo",
+                    "start_time": "20260422_211001",
+                    "last_success_batch": "20260421_211001",
+                },
+                "repo_hint": {
+                    "repo_url": "https://codehub.example.com/group/project",
+                    "default_branch": "master",
+                    "path_hints": ["src/auth/"],
+                },
+            },
+        )
+    assert r.status_code == 200
+    assert captured["since"] == "2026-04-21T21:10:01"
+    assert captured["until"] == "2026-04-22T21:10:01"
+
+
+@pytest.mark.asyncio
 async def test_follow_up_without_session_returns_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

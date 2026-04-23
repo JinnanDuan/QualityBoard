@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from datetime import datetime, timedelta
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from openai import APIError, AsyncOpenAI, AuthenticationError
@@ -21,6 +22,9 @@ from ai_failure_analyzer.api.v1.schemas.request import AnalyzeRequest
 from ai_failure_analyzer.core.config import Settings
 from ai_failure_analyzer.services.evidence_tools import (
     build_success_urls_by_batch_replace,
+    CodeHubAuthError,
+    codehub_get_commit_diff,
+    codehub_list_commits,
     fetch_report_html,
     fetch_screenshot_b64,
     resolve_evidence_urls,
@@ -488,6 +492,127 @@ def _build_synthesis_input(
     return _safe_summary_limit(raw, MAX_SYNTHESIS_INPUT_CHARS)
 
 
+def _parse_batch_like_time(value: Optional[str]) -> Optional[datetime]:
+    text = (value or "").strip()
+    if not text:
+        return None
+    formats = (
+        "%Y%m%d_%H%M%S",
+        "%Y%m%d%H%M%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+    )
+    for fmt in formats:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _compute_codehub_time_window(payload: AnalyzeRequest, settings: Settings) -> Dict[str, object]:
+    ctx = payload.case_context
+    raw_until = ""
+    raw_success = ""
+    if ctx is not None:
+        raw_until = (ctx.start_time or ctx.batch or "").strip()
+        raw_success = (ctx.last_success_batch or "").strip()
+    if not raw_until:
+        raw_until = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+
+    until_dt = _parse_batch_like_time(raw_until)
+    success_dt = _parse_batch_like_time(raw_success)
+    fallback_days = max(1, int(settings.aifa_codehub_fallback_window_days))
+    used_fallback = False
+    since_dt: Optional[datetime] = None
+    if success_dt is not None and until_dt is not None and success_dt <= until_dt:
+        since_dt = success_dt
+    else:
+        used_fallback = True
+        if until_dt is not None:
+            since_dt = until_dt - timedelta(days=fallback_days)
+
+    since = raw_success
+    until = raw_until
+    if until_dt is not None:
+        until = until_dt.strftime("%Y-%m-%dT%H:%M:%S")
+    if since_dt is not None:
+        since = since_dt.strftime("%Y-%m-%dT%H:%M:%S")
+    if not since:
+        if until_dt is not None:
+            since = (until_dt - timedelta(days=fallback_days)).strftime("%Y-%m-%dT%H:%M:%S")
+            used_fallback = True
+        else:
+            since = raw_until
+
+    if since and until and since > until:
+        used_fallback = True
+        if until_dt is not None:
+            since = (until_dt - timedelta(days=fallback_days)).strftime("%Y-%m-%dT%H:%M:%S")
+            until = until_dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+    return {
+        "since": since,
+        "until": until,
+        "used_fallback_window": used_fallback,
+    }
+
+
+def _extract_code_blame_summary(
+    commits: List[Dict[str, object]],
+    diff_map: Dict[str, Dict[str, object]],
+    window_meta: Dict[str, object],
+    skipped_reason: List[str],
+) -> Dict[str, object]:
+    suspect_patches: List[Dict[str, object]] = []
+    for item in commits:
+        sha = str(item.get("sha", "")).strip()
+        if not sha:
+            continue
+        diff_item = diff_map.get(sha, {})
+        files_touched: List[str] = []
+        raw_files = item.get("files")
+        if isinstance(raw_files, list):
+            for f in raw_files:
+                text = str(f).strip()
+                if text:
+                    files_touched.append(text)
+        changed = diff_item.get("files_changed")
+        if isinstance(changed, list):
+            for f in changed:
+                text = str(f).strip()
+                if text and text not in files_touched:
+                    files_touched.append(text)
+        why = "位于成功到失败时间窗内"
+        if files_touched:
+            why = why + "，且命中相关路径"
+        suspect_patches.append(
+            {
+                "sha": sha,
+                "author": str(item.get("author", "")).strip(),
+                "commit_time": str(item.get("time", "")).strip(),
+                "summary": str(item.get("message", "")).strip(),
+                "why_suspect": why,
+                "files_touched": files_touched,
+                "diff_excerpt": str(diff_item.get("diff", "")).strip(),
+                "truncated": bool(diff_item.get("truncated", False)),
+            }
+        )
+    return {
+        "suspect_patches": suspect_patches,
+        "codehub_meta": {
+            "time_window": {
+                "since": str(window_meta.get("since", "")),
+                "until": str(window_meta.get("until", "")),
+                "used_fallback_window": bool(window_meta.get("used_fallback_window", False)),
+            },
+            "list_count": len(commits),
+            "diff_fetched_count": len(diff_map),
+            "skipped_reason": skipped_reason,
+        },
+    }
+
+
 def _build_mock_inner_from_summaries(
     has_evidence: bool,
     data_gaps: List[str],
@@ -699,8 +824,123 @@ async def stream_analyze(
                 skill_summaries[skill] = screenshot_summary
                 continue
             if skill == SKILL_CODE_BLAME:
-                all_data_gaps.append("CodeHub 工具尚未启用，已跳过代码归因")
-                skill_summaries[skill] = {"suspect_patches": [], "error": "tool_not_implemented"}
+                repo_url = ""
+                branch = "master"
+                path_hints: List[str] = []
+                if payload.repo_hint is not None:
+                    repo_url = (payload.repo_hint.repo_url or "").strip()
+                    branch = (payload.repo_hint.default_branch or "").strip() or "master"
+                    for item in payload.repo_hint.path_hints or []:
+                        text = str(item).strip()
+                        if text:
+                            path_hints.append(text)
+                if not repo_url:
+                    all_data_gaps.append("仓库映射缺失，跳过代码归因")
+                    skill_summaries[skill] = {"suspect_patches": [], "error": "repo_hint_missing"}
+                    continue
+
+                window_meta = _compute_codehub_time_window(payload, settings)
+                if bool(window_meta.get("used_fallback_window", False)):
+                    all_data_gaps.append(
+                        "last_success_batch 缺失或非法，代码归因已回退 %s 天时间窗"
+                        % int(settings.aifa_codehub_fallback_window_days)
+                    )
+
+                try:
+                    list_result = await codehub_list_commits(
+                        settings=settings,
+                        repo_url=repo_url,
+                        branch=branch,
+                        since=str(window_meta.get("since", "")),
+                        until=str(window_meta.get("until", "")),
+                        path_filters=path_hints,
+                        limit=settings.aifa_codehub_list_limit,
+                    )
+                except CodeHubAuthError:
+                    yield format_sse(
+                        "error",
+                        {
+                            "error_code": "codehub_auth_invalid",
+                            "message": "CodeHub token 无效，请联系管理员检查服务配置",
+                        },
+                    )
+                    return
+                trace.tool_calls += 1
+                if "error" in list_result:
+                    all_data_gaps.append("CodeHub 提交查询失败：%s" % str(list_result.get("error")))
+                    skill_summaries[skill] = {
+                        "suspect_patches": [],
+                        "codehub_meta": {
+                            "time_window": {
+                                "since": str(window_meta.get("since", "")),
+                                "until": str(window_meta.get("until", "")),
+                                "used_fallback_window": bool(window_meta.get("used_fallback_window", False)),
+                            },
+                            "list_count": 0,
+                            "diff_fetched_count": 0,
+                            "skipped_reason": ["list_commits_failed"],
+                        },
+                        "error": list_result.get("error"),
+                    }
+                    continue
+                commits_raw = list_result.get("commits")
+                commits: List[Dict[str, object]] = []
+                if isinstance(commits_raw, list):
+                    for item in commits_raw:
+                        if isinstance(item, dict):
+                            commits.append(item)
+                if not commits:
+                    skill_summaries[skill] = {
+                        "suspect_patches": [],
+                        "codehub_meta": {
+                            "time_window": {
+                                "since": str(window_meta.get("since", "")),
+                                "until": str(window_meta.get("until", "")),
+                                "used_fallback_window": bool(window_meta.get("used_fallback_window", False)),
+                            },
+                            "list_count": 0,
+                            "diff_fetched_count": 0,
+                            "skipped_reason": [],
+                        },
+                    }
+                    all_data_gaps.append("该时间窗无新增提交")
+                    continue
+                top_n = max(1, min(5, settings.aifa_codehub_diff_top_n))
+                candidates = commits[:top_n]
+                diff_map: Dict[str, Dict[str, object]] = {}
+                skipped_reason: List[str] = []
+                for commit_item in candidates:
+                    sha = str(commit_item.get("sha", "")).strip()
+                    if not sha:
+                        skipped_reason.append("missing_sha")
+                        continue
+                    try:
+                        diff_result = await codehub_get_commit_diff(
+                            settings=settings,
+                            repo_url=repo_url,
+                            sha=sha,
+                            max_lines=settings.aifa_codehub_diff_max_lines,
+                        )
+                    except CodeHubAuthError:
+                        yield format_sse(
+                            "error",
+                            {
+                                "error_code": "codehub_auth_invalid",
+                                "message": "CodeHub token 无效，请联系管理员检查服务配置",
+                            },
+                        )
+                        return
+                    trace.tool_calls += 1
+                    if "error" in diff_result:
+                        skipped_reason.append("diff_failed:%s" % sha)
+                        continue
+                    diff_map[sha] = diff_result
+                skill_summaries[skill] = _extract_code_blame_summary(
+                    commits=candidates,
+                    diff_map=diff_map,
+                    window_meta=window_meta,
+                    skipped_reason=skipped_reason,
+                )
                 continue
             all_data_gaps.append("未知 skill：%s" % skill)
         timeline.append(
