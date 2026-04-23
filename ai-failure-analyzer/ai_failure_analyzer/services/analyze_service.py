@@ -17,9 +17,10 @@ from ai_failure_analyzer.api.v1.schemas.report import (
     StageTimelineItem,
     TracePayload,
 )
-from ai_failure_analyzer.api.v1.schemas.request import AnalyzeRequest, CaseContext
+from ai_failure_analyzer.api.v1.schemas.request import AnalyzeRequest
 from ai_failure_analyzer.core.config import Settings
 from ai_failure_analyzer.services.evidence_tools import (
+    build_success_urls_by_batch_replace,
     fetch_report_html,
     fetch_screenshot_b64,
     resolve_evidence_urls,
@@ -91,23 +92,12 @@ class SessionPayload(BaseModel):
     data_gaps: List[str]
     updated_at: int
 
-def has_success_screenshot_evidence(ctx: Optional[CaseContext]) -> bool:
-    """成功侧截图对比证据：成功侧直链非空，或成功侧索引 URL 非空字符串。"""
-    if ctx is None:
-        return False
-    urls = ctx.success_screenshot_urls or []
-    if len(urls) > 0:
-        return True
-    idx = (ctx.success_screenshot_index_url or "").strip()
-    return bool(idx)
-
-
-def apply_category_guard(inner: ReportInner, has_evidence: bool) -> None:
-    """无成功侧截图证据时禁止规格变更/用例不稳定。"""
-    if has_evidence:
+def apply_category_guard(inner: ReportInner, evidence_sufficiency: str) -> None:
+    """成功侧对比证据不足时禁止规格变更/用例不稳定（B4 硬规则）。"""
+    if evidence_sufficiency == "enough":
         return
     if inner.failure_category in (CATEGORY_SPEC_CHANGE, CATEGORY_FLAKY):
-        msg = "缺少成功侧截图对比证据，已将失败归类降级为 unknown"
+        msg = "成功侧截图对比证据不足，已将失败归类降级为 unknown"
         inner.failure_category = CATEGORY_UNKNOWN
         if msg not in inner.data_gaps:
             inner.data_gaps = list(inner.data_gaps) + [msg]
@@ -415,6 +405,69 @@ def _extract_screenshot_skill_summary(result: Dict[str, object]) -> Dict[str, ob
     }
 
 
+def _extract_image_entries(result: Dict[str, object]) -> List[Dict[str, object]]:
+    if "error" in result:
+        return []
+    if "images" in result and isinstance(result.get("images"), list):
+        entries: List[Dict[str, object]] = []
+        for item in result.get("images", []):
+            if isinstance(item, dict):
+                entries.append(item)
+        return entries
+    if "base64" in result:
+        return [result]
+    return []
+
+
+def _build_compare_summary(
+    failed_images: List[Dict[str, object]],
+    success_images: List[Dict[str, object]],
+) -> Dict[str, object]:
+    failed_count = len(failed_images)
+    success_count = len(success_images)
+    paired_count = min(failed_count, success_count)
+    unpaired_failed = max(0, failed_count - paired_count)
+    unpaired_success = max(0, success_count - paired_count)
+
+    if success_count == 0:
+        sufficiency = "missing"
+    elif paired_count == 0:
+        sufficiency = "insufficient"
+    else:
+        sufficiency = "enough"
+
+    diff_count = 0
+    same_count = 0
+    for idx in range(paired_count):
+        left = str(failed_images[idx].get("content_sha256_prefix", ""))
+        right = str(success_images[idx].get("content_sha256_prefix", ""))
+        if left and right and left == right:
+            same_count += 1
+        else:
+            diff_count += 1
+
+    compare_notes: List[str] = [
+        "配对 %s 组，差异 %s 组，一致 %s 组" % (paired_count, diff_count, same_count)
+    ]
+    if unpaired_failed > 0:
+        compare_notes.append("失败侧存在未配对截图 %s 张" % unpaired_failed)
+    if unpaired_success > 0:
+        compare_notes.append("成功侧存在未配对截图 %s 张" % unpaired_success)
+    if sufficiency != "enough":
+        compare_notes.append("成功侧对比证据%s" % ("缺失" if sufficiency == "missing" else "不足"))
+
+    return {
+        "compare_summary": "失败侧 %s 张，对比成功侧 %s 张" % (failed_count, success_count),
+        "compare_notes": compare_notes,
+        "failed_image_count": failed_count,
+        "success_image_count": success_count,
+        "paired_count": paired_count,
+        "unpaired_failed_count": unpaired_failed,
+        "unpaired_success_count": unpaired_success,
+        "evidence_sufficiency": sufficiency,
+    }
+
+
 def _build_synthesis_input(
     payload: AnalyzeRequest,
     plan: List[str],
@@ -464,7 +517,7 @@ async def stream_analyze(
     stage_start = time.perf_counter()
     trace = TracePayload(skills_invoked=[])
     all_data_gaps: List[str] = []
-    has_evidence = has_success_screenshot_evidence(payload.case_context)
+    screenshot_evidence_sufficiency = "missing"
 
     plan: List[str] = []
     skill_summaries: Dict[str, Dict[str, object]] = {}
@@ -564,17 +617,85 @@ async def stream_analyze(
                         "visible_error_text": "",
                         "description": "",
                         "compare_notes": [],
+                        "evidence_sufficiency": "missing",
                         "error": "screenshot_url_missing",
                     }
                     continue
+
+                success_resolved = await resolve_evidence_urls(
+                    settings=settings,
+                    reports_url=None,
+                    screenshot_urls=(
+                        payload.case_context.success_screenshot_urls if payload.case_context else None
+                    ),
+                    screenshot_index_url=(
+                        payload.case_context.success_screenshot_index_url if payload.case_context else None
+                    ),
+                )
+                success_candidates_raw = success_resolved.get("screenshot_urls", [])
+                success_candidates: List[str] = []
+                if isinstance(success_candidates_raw, list):
+                    for item in success_candidates_raw:
+                        if isinstance(item, str) and item.strip():
+                            success_candidates.append(item.strip())
+                if not success_candidates and payload.case_context is not None:
+                    replaced = build_success_urls_by_batch_replace(
+                        settings=settings,
+                        failed_urls=screenshot_candidates,
+                        failed_batch=payload.case_context.batch,
+                        success_batch=payload.case_context.last_success_batch,
+                    )
+                    replaced_urls = replaced.get("success_urls", [])
+                    if isinstance(replaced_urls, list):
+                        for item in replaced_urls:
+                            if isinstance(item, str) and item.strip():
+                                success_candidates.append(item.strip())
+                    replaced_errors = replaced.get("errors", [])
+                    if isinstance(replaced_errors, list):
+                        for item in replaced_errors:
+                            if not isinstance(item, dict):
+                                continue
+                            gap = "成功侧 URL 生成失败：%s" % str(item.get("code", "unknown"))
+                            if gap not in all_data_gaps:
+                                all_data_gaps.append(gap)
+
                 screenshot_result = await fetch_screenshot_b64(screenshot_candidates[0], settings=settings)
                 trace.tool_calls += 1
                 if "error" in screenshot_result:
                     all_data_gaps.append("截图抓取失败：%s" % str(screenshot_result.get("error")))
                 screenshot_summary = _extract_screenshot_skill_summary(screenshot_result)
+                failed_images = _extract_image_entries(screenshot_result)
+                success_result: Dict[str, object] = {"error": "success_screenshot_missing"}
+                success_images: List[Dict[str, object]] = []
+                if success_candidates:
+                    success_result = await fetch_screenshot_b64(success_candidates[0], settings=settings)
+                    trace.tool_calls += 1
+                    if "error" in success_result:
+                        all_data_gaps.append("成功侧截图抓取失败：%s" % str(success_result.get("error")))
+                    success_images = _extract_image_entries(success_result)
+                compare_block = _build_compare_summary(failed_images, success_images)
+                prior_notes = screenshot_summary.get("compare_notes")
+                prior_list: List[str] = []
+                if isinstance(prior_notes, list):
+                    prior_list = [str(x) for x in prior_notes]
+                compare_notes = compare_block.pop("compare_notes", [])
+                screenshot_summary.update(compare_block)
+                screenshot_summary["compare_notes"] = prior_list + list(compare_notes)
+                screenshot_evidence_sufficiency = str(compare_block.get("evidence_sufficiency", "missing"))
+                if screenshot_evidence_sufficiency != "enough":
+                    hint = (
+                        "成功侧截图对比证据缺失"
+                        if screenshot_evidence_sufficiency == "missing"
+                        else "成功侧截图对比证据不足"
+                    )
+                    if hint not in all_data_gaps:
+                        all_data_gaps.append(hint)
                 meta = resolved_urls.get("url_resolution_meta")
                 if isinstance(meta, dict):
                     screenshot_summary["url_resolution_meta"] = meta
+                success_meta = success_resolved.get("url_resolution_meta")
+                if isinstance(success_meta, dict):
+                    screenshot_summary["success_url_resolution_meta"] = success_meta
                 skill_summaries[skill] = screenshot_summary
                 continue
             if skill == SKILL_CODE_BLAME:
@@ -591,12 +712,21 @@ async def stream_analyze(
         )
         yield format_sse("progress", {"stage": "act_done", "message": "执行完成"})
 
+    ss_summary = skill_summaries.get(SKILL_SCREENSHOT)
+    if isinstance(ss_summary, dict):
+        suff = ss_summary.get("evidence_sufficiency")
+        if isinstance(suff, str) and suff in ("enough", "insufficient", "missing"):
+            screenshot_evidence_sufficiency = suff
+
     yield format_sse("progress", {"stage": "synthesize_started", "message": "正在生成归因结论..."})
     synth_start = time.perf_counter()
     inner: ReportInner
 
     if settings.aifa_llm_mock:
-        inner = _build_mock_inner_from_summaries(has_evidence, list(all_data_gaps))
+        inner = _build_mock_inner_from_summaries(
+            screenshot_evidence_sufficiency == "enough",
+            list(all_data_gaps),
+        )
     elif not settings.aifa_llm_base_url or not settings.aifa_llm_api_key:
         yield format_sse(
             "error",
@@ -654,7 +784,7 @@ async def stream_analyze(
             )
             return
 
-    apply_category_guard(inner, has_evidence)
+    apply_category_guard(inner, screenshot_evidence_sufficiency)
     if all_data_gaps:
         combined = list(inner.data_gaps)
         for gap in all_data_gaps:

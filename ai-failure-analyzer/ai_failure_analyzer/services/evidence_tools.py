@@ -167,6 +167,85 @@ def _dedup_keep_order(urls: Sequence[str]) -> List[str]:
     return dedup
 
 
+def _replace_batch_segment(url: str, failed_batch: str, success_batch: str) -> Optional[str]:
+    """B4：仅在路径段中替换批次子串，保持 scheme/host 不变。"""
+    if not failed_batch or not success_batch or failed_batch == success_batch:
+        return None
+    parsed = urlparse(url)
+    path = parsed.path or ""
+    segments = path.split("/")
+    changed = False
+    new_segments: List[str] = []
+    for seg in segments:
+        if failed_batch in seg:
+            new_segments.append(seg.replace(failed_batch, success_batch))
+            changed = True
+        else:
+            new_segments.append(seg)
+    if not changed:
+        return None
+    new_path = "/".join(new_segments)
+    return parsed._replace(path=new_path, fragment="").geturl()
+
+
+def build_success_urls_by_batch_replace(
+    settings: Settings,
+    failed_urls: Sequence[str],
+    failed_batch: Optional[str],
+    success_batch: Optional[str],
+    max_screenshot_candidates: Optional[int] = None,
+) -> Dict[str, object]:
+    """B4：按 batch 替换规则从失败侧 URL 生成成功侧截图候选。"""
+    limit = (
+        max_screenshot_candidates
+        if max_screenshot_candidates is not None
+        else settings.aifa_screenshot_max_images
+    )
+    src_failed_batch = (failed_batch or "").strip()
+    dst_success_batch = (success_batch or "").strip()
+    if not src_failed_batch or not dst_success_batch:
+        return {
+            "success_urls": [],
+            "meta": {"source": "batch_replace", "truncated": False},
+            "errors": [{"code": "batch_replace_not_applicable", "field": "batch", "message": "批次信息缺失"}],
+        }
+
+    generated: List[str] = []
+    for raw in failed_urls:
+        normalized = _normalize_candidate_url(str(raw))
+        if not normalized:
+            continue
+        replaced = _replace_batch_segment(normalized, src_failed_batch, dst_success_batch)
+        if not replaced:
+            continue
+        err = _is_allowed_url(replaced, settings)
+        if err:
+            continue
+        generated.append(replaced)
+    generated = _dedup_keep_order(generated)
+    selected = _pick_urls_by_limit(generated, limit)
+
+    errors: List[Dict[str, str]] = []
+    if not selected:
+        errors.append(
+            {
+                "code": "batch_replace_not_applicable",
+                "field": "success_screenshot_urls",
+                "message": "未找到可替换的批次段或替换结果不可用",
+            }
+        )
+    return {
+        "success_urls": selected,
+        "meta": {
+            "source": "batch_replace",
+            "input_count": len(failed_urls),
+            "output_count": len(selected),
+            "truncated": len(generated) > len(selected),
+        },
+        "errors": errors,
+    }
+
+
 async def resolve_evidence_urls(
     settings: Settings,
     reports_url: Optional[str],
