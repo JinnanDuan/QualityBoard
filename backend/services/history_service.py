@@ -29,14 +29,50 @@ ALLOWED_SORT_FIELDS = {
     "case_level", "analyzed", "platform", "code_branch", "created_at",
 }
 
+# LIKE … ESCAPE 使用单字符 `!`，避免反斜杠在 Python / 方言编译层被多重解释；与 _like_escape_literal 一致。
+_LIKE_ESCAPE_CHAR = "!"
+
+
+def _non_empty_str(value: Optional[str]) -> bool:
+    return value is not None and str(value).strip() != ""
+
+
+def _like_escape_literal(value: str) -> str:
+    return (
+        value.replace(_LIKE_ESCAPE_CHAR, _LIKE_ESCAPE_CHAR + _LIKE_ESCAPE_CHAR)
+        .replace("%", _LIKE_ESCAPE_CHAR + "%")
+        .replace("_", _LIKE_ESCAPE_CHAR + "_")
+    )
+
+
+def _like_substring(column, raw: Optional[str]) -> Optional[object]:
+    if not _non_empty_str(raw):
+        return None
+    inner = _like_escape_literal(str(raw).strip())
+    pattern = f"%{inner}%"
+    return column.like(pattern, escape=_LIKE_ESCAPE_CHAR)
+
 
 def _has_non_empty_case_name_filter(query: HistoryQuery) -> bool:
-    """Spec 08 §3.1.1：已选用例名且至少一项非空时，不注入默认 N 批。"""
+    """Spec 08 §3.1.1：已选用例名（IN 或子串）且有效时，不注入默认 N 批。"""
+    if _non_empty_str(query.case_name_contains):
+        return True
     if not query.case_name:
         return False
     for s in query.case_name:
         if s is not None and str(s).strip():
             return True
+    return False
+
+
+def _skip_default_start_time_injection(query: HistoryQuery) -> bool:
+    """已显式约束轮次（IN 或子串）或已选用例名（IN/子串）时，不注入默认最近 N 批。"""
+    if query.start_time:
+        return True
+    if _non_empty_str(query.start_time_contains):
+        return True
+    if _has_non_empty_case_name_filter(query):
+        return True
     return False
 
 
@@ -58,13 +94,13 @@ async def list_history(
 ]:
     """
     按 Spec 07：条件合并 + EXISTS 跨表筛选，禁止 JOIN、禁止结果集驱动。
-    按 Spec 08：未选 start_time 时注入默认最近 30 批；若已选非空 case_name 则不注入（§3.1.1，全时间范围）。
+    按 Spec 08：未选 start_time 时注入默认最近 30 批；若已传非空 start_time_contains 或已选非空 case_name（IN/子串）则不注入（显式筛选不叠默认批次）。
     1. 仅查 pipeline_history 主表，跨表条件通过 EXISTS 子查询
     2. 主查询完成后，根据当前页 (case_name, start_time, platform) 批量查 pfr 拼装 failure_owner、failed_type
     3. 根据当前页 main_module 批量查 ums_module_owner（及必要时 ums_email），拼装用例开发责任人展示串
     """
-    # ===== 第零步：未选 start_time 时注入默认最近 30 批（Spec 08）；§3.1.1 例外见 _has_non_empty_case_name_filter
-    if not query.start_time and not _has_non_empty_case_name_filter(query):
+    # ===== 第零步：未选 start_time 时注入默认最近 30 批（Spec 08）；显式轮次子串/用例名筛选时不注入
+    if not _skip_default_start_time_injection(query):
         default_batches_stmt = (
             select(ph.start_time)
             .where(ph.start_time.is_not(None))
@@ -82,34 +118,70 @@ async def list_history(
 
     # ===== 第一步：构建主表查询（无 JOIN）=====
     stmt = select(ph)
-    if query.start_time:
+    st_like = _like_substring(ph.start_time, query.start_time_contains)
+    if st_like is not None:
+        stmt = stmt.where(st_like)
+    elif query.start_time:
         stmt = stmt.where(ph.start_time.in_(query.start_time))
-    if query.subtask:
+    sub_like = _like_substring(ph.subtask, query.subtask_contains)
+    if sub_like is not None:
+        stmt = stmt.where(sub_like)
+    elif query.subtask:
         stmt = stmt.where(ph.subtask.in_(query.subtask))
-    if query.case_name:
+    cn_like = _like_substring(ph.case_name, query.case_name_contains)
+    if cn_like is not None:
+        stmt = stmt.where(cn_like)
+    elif query.case_name:
         stmt = stmt.where(ph.case_name.in_(query.case_name))
-    if query.main_module:
+    mm_like = _like_substring(ph.main_module, query.main_module_contains)
+    if mm_like is not None:
+        stmt = stmt.where(mm_like)
+    elif query.main_module:
         stmt = stmt.where(ph.main_module.in_(query.main_module))
-    if query.case_result:
+    cr_like = _like_substring(ph.case_result, query.case_result_contains)
+    if cr_like is not None:
+        stmt = stmt.where(cr_like)
+    elif query.case_result:
         stmt = stmt.where(ph.case_result.in_(query.case_result))
-    if query.case_level:
+    cl_like = _like_substring(ph.case_level, query.case_level_contains)
+    if cl_like is not None:
+        stmt = stmt.where(cl_like)
+    elif query.case_level:
         stmt = stmt.where(ph.case_level.in_(query.case_level))
     if query.analyzed:
         stmt = stmt.where(ph.analyzed.in_(query.analyzed))
-    if query.platform:
+    pl_like = _like_substring(ph.platform, query.platform_contains)
+    if pl_like is not None:
+        stmt = stmt.where(pl_like)
+    elif query.platform:
         stmt = stmt.where(ph.platform.in_(query.platform))
-    if query.code_branch:
+    cb_like = _like_substring(ph.code_branch, query.code_branch_contains)
+    if cb_like is not None:
+        stmt = stmt.where(cb_like)
+    elif query.code_branch:
         stmt = stmt.where(ph.code_branch.in_(query.code_branch))
     # 跨表筛选：EXISTS 子查询（Spec 4.2），执行键三字段精确匹配
-    if query.failure_owner or query.failed_type:
+    has_pfr_filters = (
+        query.failure_owner
+        or query.failed_type
+        or _non_empty_str(query.failure_owner_contains)
+        or _non_empty_str(query.failed_type_contains)
+    )
+    if has_pfr_filters:
         exists_conds = [
             pfr.case_name == ph.case_name,
             pfr.failed_batch == ph.start_time,
             pfr.platform == ph.platform,
         ]
-        if query.failed_type:
+        ft_like = _like_substring(pfr.failed_type, query.failed_type_contains)
+        if ft_like is not None:
+            exists_conds.append(ft_like)
+        elif query.failed_type:
             exists_conds.append(pfr.failed_type.in_(query.failed_type))
-        if query.failure_owner:
+        fo_like = _like_substring(pfr.owner, query.failure_owner_contains)
+        if fo_like is not None:
+            exists_conds.append(fo_like)
+        elif query.failure_owner:
             exists_conds.append(pfr.owner.in_(query.failure_owner))
         stmt = stmt.where(exists(select(1).select_from(pfr).where(and_(*exists_conds))))
 

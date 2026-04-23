@@ -93,8 +93,8 @@
 - **数据来源：** 批次级 → `pipeline_overview`（按 `batch` 过滤）；分组级 → `pipeline_overview`（按 `batch` + `subtask` 过滤）；用例级 → `pipeline_history`（按 `start_time` + `subtask` 过滤）。
 
 #### Story 1.3: 多条件筛选与搜索
-- **描述：** 作为开发人员，希望能够通过用例名称（`case_name`）、模块名称（`main_module` / `module`）、执行状态（`case_result`）、平台（`platform`）、批次（`start_time`）、是否已分析（`analyzed`）等字段对结果进行组合筛选，以便从海量数据中过滤出想要观测分析的数据。
-- **数据来源：** 主要查询 `pipeline_history` 表，可 JOIN `pipeline_failure_reason` 获取归因信息。
+- **描述：** 作为开发人员，希望能够通过用例名称（`case_name`）、模块名称（`main_module` / `module`）、执行状态（`case_result`）、平台（`platform`）、批次（`start_time`）、是否已分析（`analyzed`）等字段对结果进行组合筛选，以便从海量数据中过滤出想要观测分析的数据。详细执行历史页在 **IN 多选** 之外，对各字符串维度支持 **URL 参数 `*_contains` 子串筛选**（与对应维度 IN 互斥），下拉内可对候选项搜索并一键「全部」写入子串条件；子串条件在界面中以灰色标签展示（见 `spec/07`、`spec/08` 与 `docs/04_project_structure.md`）。
+- **数据来源：** 主要查询 `pipeline_history` 表；失败跟踪人、失败原因等跨表筛选由后端以 **EXISTS** 实现（禁止大表 JOIN），详见 `spec/07_history_filter_query_spec.md`。
 
 ---
 
@@ -283,10 +283,10 @@
 
 ### 5.4 详细执行历史列表
 
-- **数据源：** `pipeline_history`，可 LEFT JOIN `pipeline_failure_reason`
-- **列字段：** 批次、分组、用例名、主模块、执行结果、用例级别、负责人、是否已分析、平台、代码分支、创建时间
-- **筛选条件：** 批次、分组、用例名（模糊搜索）、主模块、执行结果、是否已分析、平台
-- **操作：** 点击行展开详情
+- **数据源：** `pipeline_history`；失败归因展示字段通过服务层批量查询 `pipeline_failure_reason` 拼装（**禁止**列表主查询与 `pipeline_failure_reason` 大结果集 JOIN，见 `spec/07`）。
+- **列字段：** 批次、分组、用例名、主模块、执行结果、用例级别、负责人（用例开发责任人展示）、是否已分析、平台、代码分支、创建时间
+- **筛选条件：** 批次、分组、用例名、主模块、执行结果、用例级别、是否已分析、平台、代码分支、失败跟踪人、失败原因等；各字符串维度支持 **多选 IN**（URL 多值）或 **子串 `*_contains`**（URL 单值，与同维 IN 互斥）；未选批次时列表默认最近 30 批，**已选用例名（IN 或 `case_name_contains`）且无批次时不注入**（全时间范围，见 `spec/08` §3.1.1、`spec/12` 钻取）。
+- **操作：** 点击行打开 Drawer 详情；用例名可链至钻取页
 
 ### 5.5 用例详情交互 (Detail Interaction)
 

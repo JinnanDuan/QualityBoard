@@ -51,6 +51,17 @@ export interface HistoryQueryParams {
   code_branch?: string[];
   failure_owner?: string[];
   failed_type?: string[];
+  /** 子串筛选；与同名字段 IN 互斥，传 contains 时勿传该维度的多选数组 */
+  start_time_contains?: string;
+  subtask_contains?: string;
+  case_name_contains?: string;
+  main_module_contains?: string;
+  case_result_contains?: string;
+  case_level_contains?: string;
+  platform_contains?: string;
+  code_branch_contains?: string;
+  failure_owner_contains?: string;
+  failed_type_contains?: string;
   sort_field?: string;
   sort_order?: string;
 }
@@ -215,6 +226,21 @@ function toSearchParams(params?: HistoryQueryParams): URLSearchParams {
   appendList("code_branch", params.code_branch);
   appendList("failure_owner", params.failure_owner);
   appendList("failed_type", params.failed_type);
+  const setIf = (key: string, v?: string) => {
+    if (v == null) return;
+    const t = String(v).trim();
+    if (t) p.set(key, t);
+  };
+  setIf("start_time_contains", params.start_time_contains);
+  setIf("subtask_contains", params.subtask_contains);
+  setIf("case_name_contains", params.case_name_contains);
+  setIf("main_module_contains", params.main_module_contains);
+  setIf("case_result_contains", params.case_result_contains);
+  setIf("case_level_contains", params.case_level_contains);
+  setIf("platform_contains", params.platform_contains);
+  setIf("code_branch_contains", params.code_branch_contains);
+  setIf("failure_owner_contains", params.failure_owner_contains);
+  setIf("failed_type_contains", params.failed_type_contains);
   if (params.sort_field) p.set("sort_field", params.sort_field);
   if (params.sort_order) p.set("sort_order", params.sort_order);
   return p;

@@ -233,6 +233,7 @@ oh：
 | 能力 | 状态 |
 |------|------|
 | History 批次筛选 | ✅ 已实现 |
+| History 字符串维度子串筛选（`*_contains`）与下拉「全部」、子串灰色 Tag | ✅ 已实现（`HistoryStringMultiFilter`、`spec/07` §8） |
 | 失败原因标注（单条/批量） | ✅ 已实现 |
 | History 行级「分析」快捷入口 | ✅ 已实现（“已分析”列内按钮，复用分析处理弹窗） |
 | 分析处理「详细原因」历史联想 | ✅ 已实现（基于本地缓存的输入联想） |
@@ -267,3 +268,4 @@ oh：
 | 2026-03-03 | 0.2 | 按真实使用流程重写：功能优先级、Report MVP、通知最小方案、开发阶段划分 |
 | 2026-03-03 | 0.3 | 补充：流转指派通知（预留 API）；总结格式固定为 rolling 线看护进展通告（按 platform、跟踪人、模块统计） |
 | 2026-04-22 | 0.5 | 同步 History 优化：新增“已分析”列行级分析按钮；分析处理弹窗“详细原因”新增历史缓存与联想输入 |
+| 2026-04-22 | 0.6 | 同步 History 筛选优化：`*_contains` 与 IN 互斥、钻取与 Spec 08 例外含 `case_name_contains`；前端 `HistoryStringMultiFilter`（子串 Tag、下拉「全部」不展示数量）；更新 `spec/07`、`spec/08`、`02_prd`、`05_technical_architecture`、`99_ai_project_snapshot` |

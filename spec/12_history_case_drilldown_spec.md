@@ -19,7 +19,7 @@
 
 ## 2. 后端依赖（Spec 08 例外）
 
-当请求 **`GET /api/v1/history`** 满足：**已传非空 `case_name`（多选中至少一项有效）**且**未传 `start_time`** 时，**不**注入默认「最近 N 批」，按其它条件 + 分页查询 `pipeline_history` 全时间范围。
+当请求 **`GET /api/v1/history`** 满足：**已传非空 `case_name`（多选中至少一项有效）或已传非空 `case_name_contains`（trim 后）**，且**未传 `start_time`** 时，**不**注入默认「最近 N 批」，按其它条件 + 分页查询 `pipeline_history` 全时间范围。
 
 详细算法与边界以 [spec/08_history_filter_performance_spec.md](08_history_filter_performance_spec.md) **§3.1.1** 为准。
 
@@ -38,7 +38,8 @@
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `case_name` | **是** | 用例名，与 `pipeline_history.case_name` 一致；**须 URL 编码**（RFC 3986） |
+| `case_name` | **条件必填** | 从列表点进钻取时**必须**携带：用例名，与 `pipeline_history.case_name` 一致；**须 URL 编码**（RFC 3986）。与 `case_name_contains` 至少满足其一（仅子串时由前端视为有效钻取，与 Spec 08 §3.1.1 一致） |
+| `case_name_contains` | 否 | 子串筛选；若仅用手工 URL 测试可不传 `case_name` 而传本子段（非典型入口） |
 | `platform` | 否 | 平台；来自被点击行；若为空则**不传**该参数（表示不按平台筛选） |
 | `code_branch` | 否 | 代码分支；来自被点击行；若为空则**不传** |
 
@@ -87,8 +88,8 @@
 
 ### 5.2 初始化
 
-1. 挂载时从 URL 解析 `case_name`（必填）、`platform`、`code_branch`。
-2. 若缺少 `case_name` 或解析后为空：展示友好错误（如「链接无效」），不发起列表请求。
+1. 挂载时从 URL 解析 `case_name`、`case_name_contains`、`platform`、`code_branch`。
+2. 若 `case_name` 与 `case_name_contains` **均无有效值**（无多选非空项且无 trim 后非空子串）：展示友好错误（如「链接无效」），不发起列表请求。
 3. 将解析结果写入筛选表单初始值，**批次留空**，立即按当前页码请求列表。
 
 ### 5.3 与 URL 同步
@@ -114,7 +115,7 @@
 
 - [ ] 列表点击用例名，新标签打开 `/history/case-executions?...`，且默认请求**无** `start_time`、**有** `case_name`（及可选 platform/code_branch）。
 - [ ] 后端对应该请求**不**注入 30 批（见 Spec 08 §3.1.1）。
-- [ ] 缺省 `case_name` 的 URL 有错误处理。
+- [ ] 缺省有效用例名（无 `case_name` 且无 `case_name_contains`）的 URL 有错误处理。
 - [ ] 分页、排序、Drawer 与大盘列表行为一致（字段以现有 History 为准）。
 
 ---
@@ -124,3 +125,4 @@
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | 1.0 | 2026-03-23 | 初稿：专用路径、query 约定、新标签钻取、依赖 Spec 08 例外 |
+| 1.1 | 2026-04-22 | 与 Spec 08 对齐：`case_name_contains` 与「非空 case_name IN」同等触发不注入默认批次；§3.2 / §5.2 / 验收与 `case_name_contains` 一致 |

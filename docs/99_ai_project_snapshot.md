@@ -47,14 +47,14 @@ api/v1/     → services/     → schemas/     → models/
 
 ## 实现成熟度地图
 
-- **已非常成熟**：`history` 模块（HistoryPage.tsx ≈2010 行，含所有一键功能的 Drawer/弹窗）、失败标注、失败原因继承、一键分析、一键通知 WeLink、首页大盘、登录认证、DB schema 校验、容器部署。
+- **已非常成熟**：`history` 模块（`HistoryPage.tsx` 与 `HistoryStringMultiFilter.tsx`；主页面约 2100+ 行量级，含多维度筛选含 `*_contains`、一键功能 Drawer/弹窗）、失败标注、失败原因继承、一键分析、一键通知 WeLink、首页大盘、登录认证、DB schema 校验、容器部署。
 - **仍是占位**：分组概览、用例管理、**总结报告（report_snapshot 表已建未用）**、**通知中心（定时催办、防打扰）**、管理员后台（用户/模块/字典 CRUD 前后端）、**sys_audit_log 审计写入**。
 
 ## 规约（spec 文件位置）
 
 - 真正的功能规约在根目录 `spec/`（14 份编号文件，`01` 到 `13`）——**不是** `openspec/specs/`（空的）。
 - 关键规约：
-  - `spec/07_history_filter_query`、`spec/08_history_filter_performance`：history 列表**禁止 JOIN**，必须 EXISTS + 批量补齐 + 默认最近 30 批。
+  - `spec/07_history_filter_query`、`spec/08_history_filter_performance`：history 列表**禁止 JOIN**，必须 EXISTS + 批量补齐 + 默认最近 30 批；主表/跨表字符串维度的 **`*_contains` 子串 `LIKE`**（与 IN 互斥、转义通配符）及 §3.1.1 用例名子串与 IN 同等不注入默认批次。
   - `spec/11_one_click_batch_analyze`、`spec/13_one_click_bug_notify`：一键功能的契约。
   - `spec/04_failure_process`：失败标注 + 跟踪人流转 + WeLink 通知联动。
 

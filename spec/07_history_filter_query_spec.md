@@ -72,8 +72,9 @@
 
 | 分类 | 条件 | 来源表 | 说明 |
 |------|------|--------|------|
-| 主表条件 | start_time, subtask, case_name, main_module, case_result, case_level, analyzed, platform, code_branch | pipeline_history | 直接作用于主表 WHERE |
-| 跨表条件 | failure_owner, failed_type | pipeline_failure_reason | 需通过 EXISTS 或子查询关联 |
+| 主表条件 | start_time, subtask, case_name, main_module, case_result, case_level, analyzed, platform, code_branch | pipeline_history | 多选为 `IN`；另支持同字段子串参数 `*_contains`（`LIKE '%…%'`），**与同维度的 IN 互斥**：非空 `*_contains` 时忽略该维度的 IN 列表 |
+| 主表子串（API 参数） | start_time_contains, subtask_contains, case_name_contains, main_module_contains, case_result_contains, case_level_contains, platform_contains, code_branch_contains | pipeline_history | 单字符串，最大长度 200；`LIKE … ESCAPE '!'`（实现见 `history_service._like_substring`），对字面量 `!`、`%`、`_` 做转义，避免通配符注入 |
+| 跨表条件 | failure_owner, failed_type | pipeline_failure_reason | 多选为 `IN`；另支持 failure_owner_contains、failed_type_contains（EXISTS 内 `LIKE`），与同维 IN 互斥 |
 
 ### 3.3 条件合并示例
 
@@ -106,7 +107,7 @@ WHERE ph.start_time IN ('2024-01-15')
 SELECT ph.*
 FROM pipeline_history ph
 WHERE
-  [主表条件：start_time, subtask, case_name, main_module, case_result, case_level, analyzed, platform, code_branch]
+  [主表条件：各字段 IN 或同维 *_contains 子串 LIKE，二选一；analyzed 仅 IN]
   [跨表条件：EXISTS 子查询]
 ORDER BY [sort_field] [sort_order]
 LIMIT [page_size] OFFSET [offset]
@@ -123,8 +124,8 @@ EXISTS (
   WHERE pfr.case_name = ph.case_name
     AND pfr.failed_batch = ph.start_time
     AND pfr.platform = ph.platform
-    AND [pfr.failed_type IN (用户选择) OR 未选则省略]
-    AND [pfr.owner IN (用户选择) OR 未选则省略]
+    AND [pfr.failed_type IN (用户选择) OR failed_type_contains LIKE OR 未选则省略]
+    AND [pfr.owner IN (用户选择) OR failure_owner_contains LIKE OR 未选则省略]
 )
 ```
 
@@ -168,7 +169,7 @@ WHERE [与主查询相同的条件]
 
 ### 5.1 何时添加 EXISTS
 
-仅当用户选择了 `failure_owner` 或 `failed_type` 时，才添加 EXISTS 子查询。
+当用户选择了 `failure_owner` / `failed_type` 的 **IN 列表**，或传入了非空的 `failure_owner_contains` / `failed_type_contains` 时，添加 EXISTS 子查询（实现上：上述任一存在即挂 EXISTS，条件分支内按 IN 或子串二选一）。
 
 ### 5.2 执行键匹配
 
@@ -247,6 +248,11 @@ AND pfr.platform = ph.platform
 - 筛选项使用单表去重查询，不参与跨表筛选
 - 列表查询超时或失败时，筛选项仍可正常返回
 
+**与前端「全部」行为的关系**（实现约定，避免误解）：
+
+- 下拉候选项来自 `history/options` 的**去重值全集**（与列表默认「最近 30 批」等范围**不必一致**）。
+- 用户在下拉中搜索后点「全部」时，前端将当前搜索关键字写入对应维度的 `*_contains` 并清空该维 IN，列表按 `LIKE` 子串查询；**下拉内「全部」不展示候选项个数**，因该数字与列表 `total` 口径不同（去重项数 vs 行数、且受其它筛选与默认批次注入影响）。
+
 ---
 
 ## 九、版本与变更
@@ -255,3 +261,5 @@ AND pfr.platform = ph.platform
 |------|------|------|
 | 1.0 | 2025-03 | 初版：条件合并、EXISTS 跨表筛选、禁止结果集驱动 |
 | 1.1 | 2025-03 | 明确唯一索引前提、大表注意事项、索引利用说明 |
+| 1.2 | 2026-04-22 | 补充主表/跨表 `*_contains` 子串筛选、与 IN 互斥、LIKE 转义；§5.1 EXISTS 触发条件含子串；§8 说明 options 与「全部」/列表 total 口径差异 |
+| 1.3 | 2026-04-22 | 子串 `LIKE` 统一为 `ESCAPE '!'` + 对 `!`/`%`/`_` 转义（替代反斜杠转义，避免方言/编译层对 `\` 的歧义） |
