@@ -1995,6 +1995,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
           setDrawerFailureTabKey("failure");
         }}
         open={drawerVisible}
+        destroyOnClose
       >
         {drawerRecord && (
           <>
@@ -2120,6 +2121,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
                       label: "AI 归因(beta)",
                       children: (
                         <AIFailureAnalysisTab
+                          key={drawerRecord.id}
                           historyId={drawerRecord.id}
                           caseResult={drawerRecord.case_result}
                         />
