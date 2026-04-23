@@ -366,3 +366,62 @@ async def test_analyze_body_too_large(monkeypatch: pytest.MonkeyPatch) -> None:
             json=payload,
         )
     assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_metrics_endpoint_after_analyze(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AIFA_INTERNAL_TOKEN", "test-secret-token")
+    monkeypatch.setenv("AIFA_LLM_MOCK", "1")
+    transport = ASGITransport(app=app)
+    sid = str(uuid.uuid4())
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        analyze_resp = await client.post(
+            "/v1/analyze",
+            headers={"Authorization": "Bearer test-secret-token"},
+            json={"session_id": sid, "mode": "initial", "case_context": {"history_id": 101, "case_name": "demo"}},
+        )
+        assert analyze_resp.status_code == 200
+        metrics_resp = await client.get("/metrics")
+    assert metrics_resp.status_code == 200
+    metrics = metrics_resp.json()
+    assert metrics["requests_total"] >= 1
+    assert metrics["requests_ok"] + metrics["requests_partial"] + metrics["requests_error"] == metrics["requests_total"]
+    assert "tokens_total" in metrics
+    assert "estimated_cost_total" in metrics
+
+
+@pytest.mark.asyncio
+async def test_token_budget_circuit_breaker_returns_partial(
+    monkeypatch: pytest.MonkeyPatch,
+    any_session_id: str,
+) -> None:
+    monkeypatch.setenv("AIFA_INTERNAL_TOKEN", "test-secret-token")
+    monkeypatch.setenv("AIFA_LLM_MOCK", "1")
+    monkeypatch.setenv("AIFA_MAX_TOKENS_PER_REQUEST", "10")
+
+    async def fake_run_plan_stage(
+        payload: object,
+        settings: object,
+        trace: object,
+    ) -> Tuple[List[str], List[str]]:
+        trace.llm_input_tokens = 12
+        return ["history_skill"], []
+
+    monkeypatch.setattr(analyze_service, "_run_plan_stage", fake_run_plan_stage)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post(
+            "/v1/analyze",
+            headers={"Authorization": "Bearer test-secret-token"},
+            json={
+                "session_id": any_session_id,
+                "mode": "initial",
+                "case_context": {"history_id": 202, "case_name": "demo"},
+            },
+        )
+    assert r.status_code == 200
+    events = _parse_sse(r.text)
+    report_data = next(d for k, d in events if k == "report")
+    assert report_data["status"] == "partial"
+    assert report_data["trace"]["token_budget_triggered"] is True
+    assert any("token" in g for g in report_data["report"]["data_gaps"])

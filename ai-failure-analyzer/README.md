@@ -61,6 +61,16 @@ uvicorn ai_failure_analyzer.main:app --host 0.0.0.0 --port 8080
 curl -sS http://127.0.0.1:8080/healthz | jq .
 ```
 
+## 指标与 trace（C4）
+
+```bash
+curl -sS http://127.0.0.1:8080/metrics | jq .
+```
+
+- `/metrics` 返回进程内聚合指标（requests/tokens/cost/熔断次数等）
+- 每次分析会追加一条 JSONL 到 `AIFA_TRACE_LOG_PATH`（默认 `trace.log`）
+- 单请求 token 达到 `AIFA_MAX_TOKENS_PER_REQUEST` 时会触发熔断并返回 `partial`
+
 ## 分析（SSE）
 
 请求体校验失败时返回 **422**（FastAPI 默认，字段为 `detail`）。请求体过大返回 **400**。

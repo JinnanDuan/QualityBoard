@@ -85,6 +85,26 @@ class Settings(BaseSettings):
         default=7,
         validation_alias="AIFA_CODEHUB_FALLBACK_WINDOW_DAYS",
     )
+    aifa_max_tokens_per_request: int = Field(
+        default=80000,
+        validation_alias="AIFA_MAX_TOKENS_PER_REQUEST",
+    )
+    aifa_price_per_1k_input: float = Field(
+        default=0.0,
+        validation_alias="AIFA_PRICE_PER_1K_INPUT",
+    )
+    aifa_price_per_1k_output: float = Field(
+        default=0.0,
+        validation_alias="AIFA_PRICE_PER_1K_OUTPUT",
+    )
+    aifa_trace_log_path: str = Field(
+        default="trace.log",
+        validation_alias="AIFA_TRACE_LOG_PATH",
+    )
+    aifa_max_concurrent_analyses: int = Field(
+        default=8,
+        validation_alias="AIFA_MAX_CONCURRENT_ANALYSES",
+    )
 
     @field_validator("aifa_llm_mock", mode="before")
     @classmethod
