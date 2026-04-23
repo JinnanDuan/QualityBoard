@@ -48,6 +48,19 @@ export function useAIAnalysis(historyId: number): UseAIAnalysisResult {
     };
   }, []);
 
+  useEffect(() => {
+    // 切换到另一条 history 记录时，清空上一条的分析会话与结果。
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setStatus("idle");
+    setProgressEvents([]);
+    setReport(null);
+    setErrorMessage("");
+    setApplying(false);
+    setRejecting(false);
+    setSessionId(newSessionId());
+  }, [historyId]);
+
   const startAnalyzeWithSession = useCallback(
     async (targetSessionId: string) => {
       abortRef.current?.abort();
