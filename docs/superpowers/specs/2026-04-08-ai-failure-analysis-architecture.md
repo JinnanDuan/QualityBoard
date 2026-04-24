@@ -1,16 +1,30 @@
 # AI 辅助失败原因分析 — 架构设计
 
 - **文档类型**：架构设计（Architecture Spec）
-- **关联文档**：同目录下的 `2026-04-08-ai-failure-analysis-tech-selection.md`（技术选型）
-- **状态**：Draft（待评审）
+- **关联文档**：
+  - `2026-04-08-ai-failure-analysis-tech-selection.md`（技术选型）
+  - `2026-04-14-ai-failure-analysis-implementation-plan.md`（**实现计划与分期、穿刺范围**）
+- **状态**：Draft（待评审，2026-04-14 已按产品讨论修订）
 - **作者**：AI 助手 × djn
-- **日期**：2026-04-08
+- **日期**：2026-04-08（初稿）；**修订**：2026-04-14（与测试/开发讨论结论收口）
+
+### 修订记录（2026-04-14）
+
+- **输出与落库**：明确「分析过程 + 完整结论」默认**不落业务库**；用户**一键确认**后，仅将 **失败归类** + **详细失败原因（结论）** 写入 `pipeline_failure_reason`（与「分析处理」「一键分析」对齐，见 §1.4、§9.4、§12.5）。
+- **失败归类**：`bug` / `spec_change` / `flaky` / `env`；其中 **规格变更**、**用例不稳定** 依赖与**最近一次成功批次**截图的对比；对比策略与降级见 §1.4、§8.3。
+- **历史成功数据**：由 **dt-report** 查得「最近一次成功批次」，在约定 URL 形态下**仅替换 batch** 生成成功侧 **截图 / 测试报告 HTML** 等资源入口（**不含日志 URL**）；**AIFA 不连 MySQL**。
+- **截图与测试报告**：`screenshot_index_url`、`reports_url` 及成功侧对应 URL **通过契约传给 AIFA**，由 **AIFA 使用 httpx 直接拉取**（目录/索引页为 HTML 时可在 **AIFA 内**用 `selectolax` 等解析出子链后再拉图片，见 §8.3）；**不由 dt-report 强制展开**为直链（若 dt-report 预展开为 `*_urls[]` 可作为可选优化，非必选）。
+- **限流**：**同一 `history_id` 在 1 分钟内最多触发 10 次**分析请求（§12.4）；与模型能力无强绑定，主要为成本与防滥用。
+- **详细分析过程**：以 **结构化 evidence + 阶段时间线** 为主，**短论证摘要**为辅且限长；不默认暴露完整 CoT（§4.3、§9.4）。
+- **异步任务（二期）**：支持批量勾选、后台排队、进度、重试、取消；**单次 dt-report → AIFA 的 HTTP/SSE 调用超时 3 分钟**；每条任务独立结果入口（§9.6）。
+- **附加文件上传**：列为**二期 / 优化项**，当前版本不做（§16）。
+- **日志 vs 其它 URL**：契约 **不传 `log_url`**；Phase B 主证据来源为 **测试报告 HTML + 截图 URL**，由 **AIFA httpx 拉取**（§8.1、§8.3、§6.2）。
 
 ---
 
 ## 0. 文档目的与适用范围
 
-本文档定义一个**新增的独立服务**——`ai-failure-analyzer`（下文简称 **AIFA**），以及它与既有 `dt-report` 系统之间的集成方式。目标是在不改动 `dt_infra` 数据库结构、不污染 `dt-report` 既有业务代码的前提下，为失败用例提供**AI 辅助的根因分析能力**。
+本文档定义一个**新增的独立服务**——`ai-failure-analyzer`（下文简称 **AIFA**），以及它与既有 `dt-report` 系统之间的集成方式。目标是在**不改动既有表结构红线**（见项目数据库规范）、**不污染** `dt-report` 既有业务逻辑的前提下，为失败用例提供**AI 辅助的根因分析能力**；分析**草稿**与过程默认不落业务库，**经用户确认**后可写入既有 `pipeline_failure_reason` 字段。
 
 本文档**只描述架构**（组件边界、数据流、契约、状态机、错误策略、部署形态、安全与观测）。所有涉及"选哪个库、哪个模型、哪个协议"的决策放在技术选型文档。
 
@@ -24,23 +38,63 @@
 - 需要一种能"读懂"日志/截图/代码历史并给出**初步归因结论**的能力。
 
 ### 1.2 功能定位
-AIFA 是 **drill-down 级别** 的能力：
-- **作用单位 = 单条失败用例**（不是整批）
-- **作用页面 = 详细执行历史页的 Drawer**（与现有"失败归因"Tab 并列）
+AIFA 是 **drill-down 级别** 的能力（**一期：单条**为主）：
+- **作用单位 = 单条失败用例**（一期入口：详细执行历史 Drawer；二期见 §9.6 批量排队）
+- **作用页面 = 详细执行历史页的 Drawer**（与现有「失败归因」Tab 并列）
 - **作用角色 = 所有登录用户**（与现有 Drawer 权限一致）
-- **产出 = 结构化的初步归因报告**（verdict / evidence / suspect patches / next steps）
-- **落地方式 = 仅在前端侧边展示，零数据库写入**
+- **产出**（见 §1.4）：① **详细分析过程**（可观测、有依据）；② **结论**（详细失败原因）；③ **失败归类**；④ 可选 **一键写入** `pipeline_failure_reason`（仅 **失败归类** + **详细原因** 两个业务字段，过程本身不入库）
+- **落地方式**：分析**草稿**在前端展示；**默认不写** `pipeline_failure_reason`；用户点击「一键设置到失败原因」后由 dt-report 写入（规则见 §1.4）
 
 ### 1.3 与既有"一键分析"的关系
 | 维度 | 既有一键分析 | AIFA |
 |---|---|---|
-| 粒度 | 整批 | 单条 |
+| 粒度 | 整批 | 单条（一期）；批量排队（二期 §9.6） |
 | 智能程度 | 0（纯规则） | LLM + 多数据源 |
-| 写库 | 写 `pfr` + `ph.analyzed` | **零写库** |
+| 写库 | 写 `pfr` + `ph.analyzed` | **分析过程与 AI 全文默认不入库**；用户确认后写 `pipeline_failure_reason`（`failed_type` + `reason` 等，§1.4） |
 | 部署 | dt-report 内嵌 | **独立服务** |
 | 目标 | 快速打标、让数据流转起来 | 辅助归因、缩短人工调查时间 |
 
 两者**互补、不替代**。一键分析解决"怎么让整批失败进入流转"，AIFA 解决"某一条失败到底是为什么"。
+
+### 1.4 输入、输出、失败归类与一键入库（产品口径）
+
+#### 1.4.1 输入（由 dt-report 拼入 payload，AIFA 不查 MySQL）
+
+前端发起分析时携带 **`history_id`**（及会话字段等）。**dt-report** 的 `ai_context_builder` 根据 `history_id` 读取 `pipeline_history` 等，至少拼出（字段名与表结构以实际实现为准，此处为业务语义）：
+
+- **用例维度**：`batch`、`platform`、`module`（及业务需要的 `subtask` 等）、`case_name`、`code_branch`（供分析与业务展示；**不向 AIFA 传日志 HTML URL**）
+- **资源入口（无日志 URL）**：`screenshot_index_url`（**截图目录/索引 URL**，见 §8.3）、`reports_url`（**测试报告 HTML 页面 URL**）等 —— **原样写入 payload**，由 **AIFA 经 httpx 拉取**（§8.1、§8.3），**dt-report 不传 `log_url`**
+- **历史执行**：同 `(case_name, platform)` 近 N 次执行摘要（`recent_executions`）
+- **最近一次成功批次**：由 dt-report 查询得到 `last_success_batch`；在团队约定下 **「同用例同形态 URL 仅 batch 段不同」**，对失败记录上的各资源 URL **仅替换 batch** 得到成功侧 **`success_screenshot_index_url`、成功侧 `reports_url`（若有）** 等（**不含日志 URL**）；**以 URL 写入 payload**，由 **AIFA 直接拉取**（§8.3）。可选预填 `success_screenshot_urls[]` 非必选。
+
+#### 1.4.2 输出（四层语义）
+
+1. **详细分析过程**（**不落库**）：以 **结构化 `evidence[]`**（类型、来源、片段、引用）+ **阶段时间线**（Plan / 各 Skill / Synthesize 或等价阶段名 + 耗时）为主；可选 **短「论证摘要」**（与 evidence 编号互链，**字数上限**在实现中配置），**不默认**输出完整模型 CoT。
+2. **结论**：**详细失败原因**（长文本，展示用；**默认不落库**）。
+3. **失败归类**（枚举，**默认不落库**）：
+   - **a. `bug`**：含崩溃、闪退等产品缺陷（与「环境问题」边界由测试用例约定，§1.4.3）
+   - **b. `spec_change`（规格变更）**：需 **对比** 当前失败截图（集）与 **历史成功**截图（集）；若对比证据不足，**禁止强判**此类（见 §8.3 降级）
+   - **c. `flaky`（用例不稳定）**：需 **对比** 失败与 **历史成功**截图（集）；证据不足时同上
+   - **d. `env`（环境问题）**
+4. **一键设置到失败原因**：用户确认后，dt-report 写入 **`pipeline_failure_reason`**（表名以 ORM 为准），**仅同步业务结论**：
+   - **`reason`**（或等价字段）：采用 AI 返回的 **结论（详细失败原因）**
+   - **`failed_type`**（或等价字段）：采用 AI 返回的 **失败归类**（需与库内既有枚举 **映射表** 对齐；无法映射时走默认或阻断并提示，实现阶段定表）
+   - **跟踪人 `owner`**（与现网「分析处理」「一键分析」一致）：
+     - 若 AI 归类为 **`bug`**：`failed_type` 置为 bug 语义对应值；**跟踪人按模块**解析/落库（与现有一键分析链路对齐）
+     - 若为 **其他归类**：按 **分析处理** 中预设的「失败类型 → 跟踪人」关系设置
+   - **覆盖策略**：若该 `(case_name, failed_batch, platform)` 已存在记录，是 **upsert** 还是 **二次确认**，产品需在实现前定稿（建议二次确认以防覆盖人工结论）
+
+**说明**：`pipeline_failure_reason` 为既有业务表；任何**新增列**须按项目规范走 `database/` SQL 迁移与 ORM 对齐；若仅写入已有列则不改表结构。
+
+#### 1.4.3 失败归类边界（测试验收口径）
+
+- **`bug` 与 `env`**：例如仅客户端进程崩溃可归 `bug`；设备离线、测试桩不可达等可归 `env`——**细表由测试在验收用例中列举**，开发按同一表实现映射。
+
+### 1.5 「用 history_id 后端拼 payload」的含义（给前端/测试）
+
+- 浏览器**不需要**自行拼凑截图目录 URL、近 N 次历史、成功批次等（**日志不通过 URL 传递**，见 §1.4.1）。
+- 前端只需在 Drawer 内发起 **`history_id`**（及 `session_id`、`mode` 等），**dt-report** 根据 `history_id` **只读**数据库与配置，组装 **AIFA 契约 JSON**，再带内部 token 转发 AIFA。
+- 好处：敏感拼装、与 `dt_infra` 的耦合集中在 dt-report；AIFA **零 MySQL**、不绑定表结构演进细节。
 
 ---
 
@@ -49,11 +103,12 @@ AIFA 是 **drill-down 级别** 的能力：
 本架构的所有取舍都围绕以下原则展开，遇到冲突时优先级由上至下：
 
 1. **与 dt_infra 数据库零耦合** —— AIFA 不连 MySQL，不知道表结构。
-2. **与 dt-report 代码零耦合** —— 调用通过 HTTP + 独立契约；dt-report 侧只增加两个薄文件。
+2. **与 dt-report 业务低耦合** —— AIFA 调用通过 HTTP + 独立契约；dt-report 侧以 **独立模块** 增加代理、payload 构造、（可选）一键入库与异步任务 API，**避免修改现有 service 核心逻辑**（见 §3.3）。
 3. **降级优先于失败** —— 任何单一数据源故障返回 `partial` 报告，绝不整单崩。
-4. **生产级但足够简单** —— 一个 Agent、五个 Skill、五个 Tool、一个内存 Session Store；避免过度工程。
+4. **生产级但足够简单** —— 一个 Agent、五个 Skill、**四个 Tool**（截图 + **测试报告 HTML** + CodeHub×2）、一个内存 Session Store；避免过度工程。
 5. **Token 成本硬约束** —— 结构化摘要在 Skill 之间流转，原始数据不透传到最终合成。
-6. **未来可替换** —— LLM 厂商、代码仓库实现、Session 后端、Mongo schema 都走抽象或配置，切换不改代码。
+6. **未来可替换** —— LLM 厂商、代码仓库实现、Session 后端都走抽象或配置，切换不改代码。
+7. **规格/不稳定类结论可证伪** —— 无成功截图对比证据时 **不输出强结论** 为 `spec_change` / `flaky`；写入 `data_gaps` 并降级（§1.4、§8.3）。
 
 ---
 
@@ -82,15 +137,13 @@ AIFA 是 **drill-down 级别** 的能力：
 │  ├── agent/orchestrator.py       单 Agent 三阶段主循环          │
 │  ├── agent/skills/*.py           五个 skill 模块                │
 │  ├── agent/prompts/*.md          每个 skill 的 system prompt    │
-│  ├── tools/*.py                  五个 tool                      │
-│  ├── clients/                    mongo / http / codehub / llm   │
+│  ├── tools/*.py                  四个 tool                      │
+│  ├── clients/                    http / codehub / llm            │
 │  ├── sessions/                   内存 LRU Session Store         │
 │  └── core/                       config / logging               │
 │                                                                 │
 │  ④ 外部数据源访问：                                              │
-│    ├─► HTML log   (httpx → log_url)                             │
-│    ├─► MongoDB    (motor → 只读用户)                            │
-│    ├─► 截图       (httpx → screenshot_url, base64)              │
+│    ├─► 截图/报告 (httpx → 契约 URL，HTML/图片；见 §8.1、§8.3)   │
 │    ├─► CodeHub    (httpx → REST API + token)                    │
 │    └─► LLM        (httpx/openai-sdk → OpenAI 兼容端点)          │
 │                                                                 │
@@ -109,7 +162,7 @@ AIFA 是 **drill-down 级别** 的能力：
 | 环境变量前缀 | 现有 | **全部以 `AIFA_` 开头**，与 dt-report env 严格隔离 |
 | 日志目录 | 现有 `logs/` | 独立 `logs/aifa/` 或容器内 `/var/log/aifa` |
 | dt_infra 访问 | 读写（遵循现有红线） | **零访问**（不连 MySQL） |
-| MongoDB 访问 | 无 | 只读账号 |
+| 报告/截图源访问 | 无 | 通过 HTTP 可达 |
 | CodeHub 访问 | 无 | Service token |
 | LLM API 访问 | 无 | 独立 API key |
 | 生命周期 | 独立升级/重启 | 独立升级/重启 |
@@ -118,22 +171,27 @@ AIFA 是 **drill-down 级别** 的能力：
 
 ### 3.3 dt-report 侧新增的最小改动
 
-**严禁改动任何现有 service**。只新增两个薄文件：
+**一期目标**：尽量不改动现有 service 的核心逻辑；允许在评审后**增加**独立路由/服务模块（如「一键写入失败原因」「异步任务」）时**调用既有** `failure_process_service` / `one_click_analyze_service` 等中的**可复用片段**（以代码评审为准），避免复制粘贴业务规则。
 
-1. **`backend/api/v1/ai_proxy.py`** —— 单接口 `POST /api/v1/ai/analyze`
+**一期最少新增**（命名可微调）：
+
+1. **`backend/api/v1/ai_proxy.py`** —— `POST /api/v1/ai/analyze`（及追问同路径或子路径）
    - 复用 `get_current_user` 做 JWT 校验
+   - **限流**：同一 **`history_id`** 在滑动/固定 **1 分钟窗口内最多 10 次**分析请求（§12.4）；超限返回 **429** 与中文说明
    - 调用 `ai_context_builder.build_payload(history_id)` 构造 payload
-   - `httpx.AsyncClient` 转发到 AIFA
+   - `httpx.AsyncClient` 转发到 AIFA，**单次调用读超时与 SSE 总时长上限 180s（3 分钟）**（与 §9.6 一致；实现可用分段超时）
    - 透明转发 AIFA 的 SSE 响应流
-   - 写一条 `sys_audit_log`（顺便推动 audit 落地）
-   - 请求体：`{ history_id: int, follow_up_message?: str, session_id?: str, mode: "initial"|"follow_up" }`
+   - 写一条 `sys_audit_log`（见 §12.5）
+   - 请求体：`{ history_id: int, follow_up_message?: str, session_id?: str, mode: "initial"|"follow_up" }`（二期可加 `task_id` 等，§9.6）
 
-2. **`backend/services/ai_context_builder.py`** —— 构造 AIFA 的请求 payload
-   - 按 `history_id` 读 `pipeline_history` 主记录
-   - 复用 `history_service` 的 helper 查近 N 次相同 `(case_name, platform)` 的执行记录（默认 N=20）
-   - 读 `module_repo_mapping`（配置文件，见 §4.3）得到 `repo_hint`
-   - 组装为 AIFA 契约定义的 JSON
-   - **纯数据读取**，不做任何 AI/Prompt 相关逻辑
+2. **`backend/services/ai_context_builder.py`** —— 构造 AIFA 的请求 payload（**纯数据读取**，不做 AI/Prompt）
+   - 按 `history_id` 读 `pipeline_history` 主记录，取出 **batch、platform、module、subtask、case_name、code_branch** 及 **截图目录、report** 等 URL 字段（**不向 AIFA 传日志 URL**）
+   - 复用 `history_service` 的 helper 查近 N 次相同 `(case_name, platform)` 的执行记录（默认 N=20）→ `recent_executions`
+   - **最近一次成功批次**：仅 dt-report 查库得到 `last_success_batch`；对失败 URL **仅替换 batch** 生成成功侧 **`success_screenshot_index_url`、成功侧报告 URL 等**写入 payload（**不含日志 URL**）；**不在此步强制枚举子链**（可选优化见 §4.1）
+   - 读 `module_repo_mapping`（配置文件）得到 `repo_hint`
+   - 组装为 AIFA 契约 JSON
+
+3. **（与用户确认动作配套）** `POST /api/v1/ai/apply-failure-reason`（命名待定）——将 AI 返回的 **失败归类 + 结论** 经映射后写入 `pipeline_failure_reason`，规则见 §1.4；须 **JWT + 权限 + 审计**；**禁止**在未登录或无权时写入。
 
 ### 3.4 前端改动范围
 
@@ -153,6 +211,10 @@ AIFA 是 **drill-down 级别** 的能力：
 
 ### 4.1 Request Body
 
+**约定**：**不向 AIFA 传递日志 HTML URL**（无 `log_url`字段）；AIFA 主要使用 `reports_url` 与截图 URL 拉取证据（§8.1、§8.3）。
+
+`screenshot_index_url` 为**截图目录或索引页 URL**（或单张 `image/*` 直链，由实现识别）。**默认由 AIFA** 使用 **httpx** 拉取；若为 HTML 索引页，在 **AIFA 内**解析出图片子链后再逐张拉取（`selectolax` 等，见技术选型 §6）。**dt-report 可选**预填 `screenshot_urls[]` / `success_screenshot_urls[]` 作为优化，**非必选**。`reports_url` 为测试报告 HTML，**由 AIFA** 调用 **`fetch_report_html`**（§6.2）拉取并截断。成功侧：`last_success_batch` + `success_screenshot_index_url`（及可选 `success_reports_url` / 与失败同字段名约定由实现固定）。
+
 ```json
 {
   "session_id": "uuid-generated-by-frontend",
@@ -160,17 +222,23 @@ AIFA 是 **drill-down 级别** 的能力：
   "follow_up_message": "仅 mode=follow_up 时存在",
   "case_context": {
     "history_id": 123456,
+    "batch": "202604071200",
     "case_name": "test_login_with_invalid_password",
     "platform": "Android",
     "main_module": "auth",
+    "module": "auth",
+    "subtask": "可选",
     "start_time": "202604071930",
     "case_result": "failed",
     "code_branch": "master",
-    "log_url": "http://.../log/xxx.html",
-    "screenshot_url": "http://.../shot/xxx.png",
+    "screenshot_index_url": "http://.../batch_失败/screenshots/",
+    "screenshot_urls": ["http://.../a.png", "http://.../b.png"],
     "pipeline_url": "http://jenkins/.../123",
-    "reports_url": "http://.../report/xxx",
-    "case_level": "P0"
+    "reports_url": "http://.../batch_失败/report/",
+    "case_level": "P0",
+    "last_success_batch": "202604061200",
+    "success_screenshot_index_url": "http://.../batch_成功/screenshots/",
+    "success_screenshot_urls": ["http://.../ok1.png"]
   },
   "recent_executions": [
     { "start_time": "202604061930", "case_result": "passed", "code_branch": "master" },
@@ -184,8 +252,9 @@ AIFA 是 **drill-down 级别** 的能力：
 }
 ```
 
-- `recent_executions`：由 dt-report 按 `(case_name, platform)` 查近 N 条，AIFA 据此判断"首次失败 / 回归 / flaky"。
+- `recent_executions`：由 dt-report 按 `(case_name, platform)` 查近 N 条，AIFA 据此判断「首次失败 / 回归 / flaky」等；**与 `spec_change` / `flaky` 的视觉对比互补**（后者依赖成功截图集，§1.4）。
 - `repo_hint`：**由 dt-report 侧维护**的 `main_module → 仓库` 映射（初期为 YAML 配置，后期可升级为字典表）。AIFA 不理解业务模块与仓库的对应关系。
+- **字段兼容**：若一期实现中暂不传 `module`/`subtask`/`last_success_batch` 等，以 `nullable`/缺省处理；**不得**要求 AIFA 访问 MySQL 补数据。
 
 ### 4.2 SSE 响应事件
 
@@ -194,7 +263,7 @@ event: progress
 data: {"stage": "plan", "message": "规划分析路径..."}
 
 event: progress
-data: {"stage": "log_analysis", "message": "正在分析日志..."}
+data: {"stage": "report_analysis", "message": "正在分析报告与文本证据..."}
 
 event: progress
 data: {"stage": "code_blame", "message": "正在检索近期提交..."}
@@ -211,20 +280,32 @@ data: {"error_code": "codehub_unauthorized", "message": "..."}
 
 ### 4.3 Response Schema（report 字段）
 
+**与 §1.4 对齐**：`failure_category` 为产品枚举（`bug` | `spec_change` | `flaky` | `env`）；`verdict` 可与之一致或作为对外的粗粒度兼容字段（实现阶段二选一或并存，须在 schema 中固定）。**详细分析过程**以 `evidence[]` + `stage_timeline[]` 为主；`rationale_summary` 为可选短摘要（**字数上限**）。
+
+**`spec_change` / `flaky` 硬规则**：当 `success_screenshot_urls` 为空或对比证据不足时，模型**不得**将 `failure_category` 强判为 `spec_change` / `flaky`；应判为 `unknown` 或依赖日志/历史的次优结论，并在 `data_gaps` 写明原因。
+
 ```json
 {
   "session_id": "uuid",
   "status": "ok | partial | error",
   "report": {
+    "failure_category": "bug | spec_change | flaky | env | unknown",
     "verdict": "product_bug | env_issue | test_flaky | infra | unknown",
     "confidence": 0.0,
     "summary": "一句话结论",
+    "detailed_reason": "详细失败原因（长文本，供展示与一键入库 reason）",
+    "rationale_summary": "短论证摘要，与 evidence id 互链；可空",
+    "stage_timeline": [
+      { "stage": "plan", "message": "规划分析路径", "elapsed_ms": 1200 },
+      { "stage": "report_analysis", "message": "分析报告文本证据", "elapsed_ms": 8000 }
+    ],
     "evidence": [
       {
-        "type": "log_excerpt | screenshot_observation | commit | history_pattern",
-        "source": "mongo_log | html_log | screenshot | codehub | recent_executions",
+        "id": "e1",
+        "type": "log_excerpt | report_excerpt | screenshot_observation | screenshot_compare | commit | history_pattern",
+        "source": "report_html | screenshot | codehub | recent_executions",
         "snippet": "...",
-        "reference": "具体指向（日志行号/commit sha/历史批次）"
+        "reference": "具体指向（日志行号/commit sha/历史批次/截图序号）"
       }
     ],
     "suspect_patches": [
@@ -238,10 +319,10 @@ data: {"error_code": "codehub_unauthorized", "message": "..."}
       }
     ],
     "suggested_next_steps": ["...", "..."],
-    "data_gaps": ["Mongo 未检索到该批次日志", "..."]
+    "data_gaps": ["成功侧截图索引解析失败，未做规格/不稳定对比", "..."]
   },
   "trace": {
-    "skills_invoked": ["log_analysis", "code_blame", "synthesis"],
+    "skills_invoked": ["report_analysis", "code_blame", "synthesis"],
     "tool_calls": 7,
     "llm_input_tokens": 12034,
     "llm_output_tokens": 1820,
@@ -305,37 +386,29 @@ data: {"error_code": "codehub_unauthorized", "message": "..."}
 | Skill | 目的 | 允许调用的 Tool | 产出结构化字段 |
 |---|---|---|---|
 | `history_skill` | 判断**偶发/回归/新失败**，看历史通过/失败模式 | _（无 tool，仅读 payload.recent_executions）_ | `pattern`（flaky/regression/new/persistent）、`last_pass_batch` |
-| `log_analysis_skill` | 定位根因行、堆栈、异常关键字 | `fetch_log_html`, `query_mongo_logs` | `error_lines[]`, `stack_summary`, `keywords[]` |
-| `screenshot_skill` | 识别截图中的 UI 状态（报错弹窗/空白页/toast 等） | `fetch_screenshot_b64` | `ui_state`, `visible_error_text`, `description` |
+| `report_analysis_skill` | 定位根因行、堆栈、异常关键字：**测试报告 HTML**（契约 `reports_url`，AIFA 拉取） | `fetch_report_html` | `error_lines[]`, `stack_summary`, `keywords[]`, `report_excerpt`（结构化） |
+| `screenshot_skill` | 从 **`screenshot_index_url` / `success_screenshot_index_url`**（及可选预填直链表）拉取图片；识别 UI；有成功集时 **LLM 多图对比**（§4.3 硬规则） | `fetch_screenshot_b64`（**支持直链或索引页 URL**，内部可解析 HTML 后再多次 GET） | `ui_state`, `visible_error_text`, `description`, `compare_notes[]` |
 | `code_blame_skill` | 反推可能引入问题的 patch | `codehub_list_commits`, `codehub_get_commit_diff` | `suspect_patches[]`（sha/author/why_suspect） |
 | `synthesis_skill` | 汇总成最终报告 | _（无 tool，输入各 skill 摘要）_ | 完整 `report` 对象 |
 
-### 6.2 Tool 清单（5 个）
+### 6.2 Tool 清单（4 个）
 
-所有 Tool 都是 `async` Python 函数，通过 OpenAI function-calling 协议暴露给 LLM。
+所有 Tool 都是 `async` Python 函数，通过 OpenAI function-calling 协议暴露给 LLM。**不提供**「按 **日志** HTML URL 抓取」Tool（契约不传 `log_url`）。**截图、测试报告** 通过契约中的 **URL 由 AIFA 拉取**。
 
 ```python
-# 1. HTML 日志抓取
-async def fetch_log_html(log_url: str, max_chars: int = 20000) -> dict:
-    """httpx GET → selectolax 提正文 → 去时间戳/ANSI → 截断"""
-    # returns: {text, truncated, content_length}
+# 1. 测试报告 HTML（契约 reports_url）
+async def fetch_report_html(reports_url: str, max_chars: int = 20000) -> dict:
+    """httpx GET → selectolax 提正文或关键区域 → 截断；非 HTML 或失败返回结构化 error"""
+    # returns: {text, truncated, content_length} 或 {error, detail}
 
-# 2. MongoDB 结构化日志查询
-async def query_mongo_logs(
-    case_name: str, batch: str, platform: str,
-    levels: list[str] = ["ERROR", "WARN"], limit: int = 200
-) -> dict:
-    """motor 只读查询，按 level 过滤，按 timestamp 倒序"""
-    # returns: {records: [...], total}
-
-# 3. 截图获取
+# 2. 截图：直链 image/* 或索引页 URL（索引页需解析后再逐张拉取）
 async def fetch_screenshot_b64(
     screenshot_url: str, max_bytes: int = 2_000_000
 ) -> dict:
-    """httpx GET → 校验 content-type/size → base64 编码"""
-    # returns: {base64, mime, size_bytes, truncated}
+    """httpx GET；单张图 base64。若 URL 为目录索引 HTML，由 skill 内先解析出子 URL 再循环调用本 tool"""
+    # returns: {base64, mime, size_bytes, truncated} 或 {error, detail}
 
-# 4. CodeHub 提交列表
+# 3. CodeHub 提交列表
 async def codehub_list_commits(
     repo_url: str, branch: str, since: str, until: str,
     path_filters: list[str] | None = None, limit: int = 30
@@ -343,7 +416,7 @@ async def codehub_list_commits(
     """CodeHub REST API，时间窗 + 路径过滤"""
     # returns: {commits: [{sha, author, time, message, files}]}
 
-# 5. CodeHub 单 commit diff
+# 4. CodeHub 单 commit diff
 async def codehub_get_commit_diff(
     repo_url: str, sha: str, max_lines: int = 500
 ) -> dict:
@@ -391,75 +464,50 @@ class SessionState:
 
 ## 8. 外部数据源集成与降级
 
-### 8.1 HTML 日志
+### 8.1 文本证据来源（无日志 URL）
+
+**本期不向 AIFA 传入日志 HTML URL**，也不依赖独立 Mongo 数据源。失败用例文本证据来自 `reports_url` 的 HTML 抽取；若报告不可用，则仅依赖截图、历史与代码证据并在 `data_gaps` 标注。
+
+### 8.3 截图与测试报告 HTML（契约 URL，AIFA 直连）
+
+**业务语义**：`pipeline_history` 侧存的是 **截图目录/索引页 URL** 或 **单张直链**；`reports_url` 为 **测试报告 HTML 页面 URL**。二者均经 **payload 传给 AIFA**，由 **AIFA 使用 httpx 拉取**（与「不传日志 URL」一致）。
 
 | 维度 | 细节 |
 |---|---|
-| 客户端 | `httpx.AsyncClient`（共享连接池） |
-| 解析 | `selectolax` 提 `<body>` 纯文本 |
-| 超时 | connect 3s / read 10s |
-| 并发 | 全局 semaphore ≤ 4 在途 |
-| 后处理 | 去时间戳前缀、ANSI 色码；按行 split 保留末 N 行（默认 800） |
-| 截断阈值 | `max_chars=20000` |
+| **拉取责任** | **默认在 AIFA**：对 `screenshot_index_url` / `success_screenshot_index_url` 先 **GET**；若响应为 **`image/*`** 则按单张处理；若为 **`text/html`** 则在 **AIFA 内**用 `selectolax`（或等价）解析出图片直链列表，再逐张 `GET`（**解析规则与现网索引页结构绑定**，单测覆盖）。**dt-report** 若已预填 `screenshot_urls[]` / `success_screenshot_urls[]`，AIFA **可优先使用**以省一次索引请求。 |
+| **测试报告** | `reports_url` 由 **`fetch_report_html`**（§6.2）拉取 HTML → 提正文或关键片段 → **截断**后进入 `report_analysis_skill` 摘要或独立证据字段（实现阶段固定 schema）。 |
+| 客户端 | AIFA 共用 `httpx.AsyncClient` |
+| 超时 | 索引页 / 单图 connect 3s / read 8s（可配置）；报告 HTML read 10s（可配置） |
+| 大小硬上限 | **单张图 2MB**；**报告 HTML** `max_chars`（如 20000）超限截断 + `data_gaps` |
+| content-type | 图片必须以 `image/` 开头；报告为 `text/html` 或容错 |
+| **张数上限** | 解析出的图片各自最多 **N 张**（建议 ≤10，可 env）；超出则取「前 N-1 + 最后 1 张」等策略 |
+| 编码 | 图片 base64 送视觉模型；多图时分段受模型限制 |
 
-**降级**：
-- 连不上 → skill 产出空 `error_lines=[]`，`data_gaps` 记"HTML 日志获取失败"
-- 解析不出正文 → 返回原始文本末尾 2000 字符 + WARNING
-- 超大 → 截断继续 + `data_gaps` 记
+**视觉模型调用**（由 `screenshot_skill` 发起，示意多图）：
 
-### 8.2 MongoDB 结构化日志
-
-| 维度 | 细节 |
-|---|---|
-| 驱动 | `motor` |
-| 连接 | 启动时建立单例 `AsyncIOMotorClient`，连接池 10 |
-| 账号 | **只读用户**，env `AIFA_MONGO_URI` |
-| 超时 | `serverSelectionTimeoutMS=3000`, `socketTimeoutMS=8000` |
-| 查询 | 只用 `find`，不用 `aggregate`/`mapReduce` |
-| 字段名 | **全部走 env 配置**，避免硬编码（AIFA 不控制 Mongo schema） |
-
-所需 env：
-```
-AIFA_MONGO_URI
-AIFA_MONGO_DB
-AIFA_MONGO_LOG_COLLECTION
-AIFA_MONGO_FIELD_CASE_NAME
-AIFA_MONGO_FIELD_BATCH
-AIFA_MONGO_FIELD_PLATFORM
-AIFA_MONGO_FIELD_LEVEL
-AIFA_MONGO_FIELD_TIMESTAMP
-```
-
-**降级**：
-- Mongo 连不上 → skill 跳过 Mongo 分支，仅用 HTML，`data_gaps` 记
-- Mongo 查空 → 不是错误，正常返回
-- Mongo 超时 → 降级到 HTML + WARNING
-
-### 8.3 截图
-
-| 维度 | 细节 |
-|---|---|
-| 客户端 | 共用 `httpx.AsyncClient` |
-| 超时 | connect 3s / read 8s |
-| 大小硬上限 | **2MB**（超过直接 error） |
-| content-type 校验 | 必须以 `image/` 开头 |
-| 编码 | base64（data URL）送给视觉模型 |
-
-**视觉模型调用**（由 `screenshot_skill` 发起）：
 ```python
-messages = [
-  {"role": "system", "content": prompt},
-  {"role": "user", "content": [
-    {"type": "text", "text": "这是该用例失败时的截图..."},
-    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
-  ]}
-]
+content = [{"type": "text", "text": "以下为失败执行截图（按执行顺序）..."}]
+for i, b64 in enumerate(failure_images):
+    content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+if success_images:
+    content.append({"type": "text", "text": "以下为最近一次成功批次截图，请对比 UI 差异..."})
+    for b64 in success_images:
+        content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+messages = [{"role": "system", "content": prompt}, {"role": "user", "content": content}]
 ```
 
+**规格变更 / 用例不稳定 对比策略（推荐一期）**：
+
+- **主路径**：**LLM 多图视觉对比** + **§4.3 硬规则**（无成功集则不强判 `spec_change`/`flaky`）。
+- **可选演进**：在对比前增加轻量确定性预处理（缩略图、简单差异分），作为 gate 或辅助输入——**非一期必选**。
+
 **降级**：
-- 图片拉取失败 → skill 产出 `{ui_state: "unknown"}`
-- 图片过大 → error + `data_gaps` 记
-- 视觉模型调用失败（配额/网络）→ 整个 skill 降级返回空 + WARNING
+
+- 索引页无法解析、无子链或全空 → `data_gaps` 记录；**不整单失败**
+- 单张拉取失败 → 跳过该张，继续其他张
+- `reports_url` 拉取失败或解析为空 → `data_gaps`；其余 skill 继续
+- **成功侧**全部不可用 → **禁止**输出 `spec_change`/`flaky` 强结论（§4.3），其余 skill 仍可按日志/历史输出 `bug`/`env`/`unknown`
+- 视觉模型调用失败（配额/网络）→ skill 降级 + WARNING + `data_gaps`
 
 ### 8.4 CodeHub
 
@@ -545,20 +593,54 @@ error
 - 追问：`mode=follow_up, session_id, follow_up_message`
 - Drawer 关闭 → session_id 作废（前端 state 销毁）
 
-### 9.4 报告渲染
+### 9.4 报告渲染与一键入库
 
 `ReportView.tsx` 按结构化 schema 渲染（非裸 markdown）：
-- **顶部大卡片**：`verdict` + `confidence` + `summary`
-- **中部三列/折叠区**：`evidence`（按 source 分组）、`suspect_patches`（表格）、`suggested_next_steps`（列表）
+
+- **顶部大卡片**：`failure_category`（或 `verdict`）+ `confidence` + `summary`
+- **结论区**：`detailed_reason`（可折叠长文）
+- **详细分析过程（不落库）**：
+  - **阶段时间线** `stage_timeline[]`（步骤名 + 文案 + 耗时）
+  - **`evidence[]`**：按 `source` / `type` 分组，**`snippet` 默认折叠**，支持展开；若有 `id` 可与 `rationale_summary` 互链
+- **中部**：`suspect_patches`（表格）、`suggested_next_steps`（列表）
 - **底部警示条**：`data_gaps`（灰色提示）
-- **角标**：`trace.tool_calls / elapsed_ms`（方便解释成本和调试）
-- **原始 evidence snippet 允许展开**，默认折叠
+- **角标**：`trace.tool_calls / elapsed_ms`（成本与调试）
+- **主操作**：**「一键设置到失败原因」**按钮 —— 调用 dt-report 接口 **POST /api/v1/ai/apply-failure-reason**（命名待定），请求体携带 `history_id`、`failure_category`、`detailed_reason`（及防重放/版本戳等实现自定）；服务端按 §1.4 映射写入 **`pipeline_failure_reason`**，成功后 Toast；失败返回明确中文原因
+
+**刷新与关闭 Drawer**：未入库前，分析结果仍为**会话级**；关闭 Drawer 后是否保留前端 state 由产品决定（默认不保留，与旧 §9.3 session 约定一致）。**入库后**以列表/详情读 `pipeline_failure_reason` 为准。
 
 ### 9.5 Tab 懒加载
 
 - 组件只在用户切到 "AI 归因" Tab 时 mount
 - 首次 mount 不自动发请求；必须用户点"开始分析"按钮才发
 - 这让"好奇点开 Drawer 但不想分析"的用户不产生任何 LLM 成本
+
+### 9.6 批量勾选、后台排队与进度（二期 / 优化项）
+
+**目标**：用户在列表中**勾选多条**失败用例，触发 **后台分析队列**；前端展示**排队位置 / 进行中 / 已完成**，每条有**独立入口**查看报告（与单条 Drawer 内体验对齐）。
+
+**任务模型（概念 schema）**：
+
+| 字段 | 说明 |
+|---|---|
+| `task_id` | UUID，全局唯一 |
+| `history_id` | 对应一条失败执行 |
+| `status` | `queued` \| `running` \| `succeeded` \| `failed` \| `cancelled` \| `partial`（与报告 status 可区分命名，实现自定） |
+| `progress` | 0–100 或阶段枚举 + 文案 |
+| `attempt` | 重试次数 |
+| `error_code` / `message` | 失败时 |
+| `created_at` / `started_at` / `finished_at` | 时间戳 |
+
+**能力**：
+
+- **重试**：用户对 `failed` 任务手动重试（**是否计入** `history_id` 的 10 次/分钟 额度，建议 **计入**，防刷）
+- **取消**：**至少**允许取消 `queued`；`running` 是否支持协作取消依赖 AIFA 是否实现中断信号（二期评审）
+- **超时**：**单次** dt-report → AIFA 的 HTTP/SSE 客户端 **总等待 3 分钟**；超时将该任务标为 `failed` 或 `partial`（若中途已有部分 SSE 数据，由实现定义），**不**默认无限挂起
+- **并发**：仍受 AIFA `AIFA_MAX_CONCURRENT_ANALYSES` 与 dt-report 队列 worker 数约束
+
+**持久化**：队列状态若需跨进程/刷新可恢复，须 **独立存储**（Redis 或 DB 任务表）；**新建表**须按项目规范提交 SQL 迁移。若一期不做持久化，则队列仅 **单进程内存**、刷新即失，须在 UI 明示。
+
+**与一期关系**：一期可仅实现单条 Drawer + SSE；二期再挂接同一 AIFA 契约与同一报告 schema。
 
 ---
 
@@ -584,13 +666,13 @@ error
 {
   "status": "ok",
   "checks": {
-    "mongo": "ok",
+    "report_source": "ok",
     "codehub": "ok",
     "llm": "ok"
   }
 }
 ```
-- **Mongo**：`ismaster` ping
+- **报告/截图源**：对关键 URL 做轻量连通性探测或启动期校验
 - **CodeHub**：轻量 API 调用（如获取 token info）
 - **LLM**：**不在健康检查里调**（太贵），改为**启动时一次 warmup**
 
@@ -676,9 +758,6 @@ screenshot_hash=sha256:zzzzzzz bytes=102400
 | `AIFA_LLM_BASE_URL` | OpenAI 兼容端点 |
 | `AIFA_LLM_TEXT_MODEL` | 文本推理模型名 |
 | `AIFA_LLM_VISION_MODEL` | 视觉模型名 |
-| `AIFA_MONGO_URI` | Mongo 只读连接串 |
-| `AIFA_MONGO_DB` / `AIFA_MONGO_LOG_COLLECTION` | 库/集合 |
-| `AIFA_MONGO_FIELD_*` | 字段映射（见 §8.2） |
 | `AIFA_CODEHUB_BASE_URL` | CodeHub API 根 |
 | `AIFA_CODEHUB_TOKEN` | CodeHub service token |
 | `AIFA_CODE_REPO_PROVIDER` | 代码仓库实现（`codehub`） |
@@ -708,20 +787,21 @@ screenshot_hash=sha256:zzzzzzz bytes=102400
 
 ### 12.4 速率限制
 
-- **dt-report 侧**（在 `ai_proxy` 加）：同一用户每分钟 ≤10 次、每小时 ≤50 次 → 触顶返回 429
+- **dt-report 侧（硬指标，与产品对齐）**：**同一 `history_id` 在 1 分钟内最多触发 10 次**「发起分析」请求（含用户快速重试；**自动重试是否计入**须在实现中固定并写入运维说明）。超限返回 **429**，body 中文说明。
+- **补充（可选全局护栏）**：同一用户每分钟 / 每小时总次数上限（如原 10/min、50/h）可作为**额外**防护，**不得**弱于单 `history_id` 限制。
 - **AIFA 侧**：全局并发 semaphore，默认 `AIFA_MAX_CONCURRENT_ANALYSES=8`；超过直接返回 503（不排队，避免 SSE 超时体验变差）
 
-### 12.5 审计
+### 12.5 审计与业务写库边界
 
-- dt-report 侧 `ai_proxy` 每次调用写一条 `sys_audit_log`（顺便推动 audit 落地）
-  - 字段：`user_employee_id / history_id / session_id / mode / result_status`
-  - **这是唯一对 dt_infra 的写入**，符合"AIFA 不碰 dt_infra"红线
-- AIFA 侧只写自己的 `trace.log`，不碰 dt_infra
+- **AIFA**：不连接 MySQL；仅写自身 `trace.log` / 应用日志。
+- **dt-report `ai_proxy`**：每次调用 AIFA（含追问）写 **`sys_audit_log`**（若该表已落地），建议字段：`user_employee_id / history_id / session_id / mode / result_status`（`result_status` 取报告 `status` 或 HTTP 摘要）。
+- **dt-report `apply-failure-reason`（一键入库）**：用户显式确认后，写入 **`pipeline_failure_reason`**（`failed_type`、`reason`、`owner`、`analyzer` 等按 §1.4 映射），**必须**同时写审计（同上或独立 action 类型），且 **JWT + 权限校验**。
+- **红线重申**：**禁止** `pipeline_overview` / `pipeline_history` **DELETE**；**禁止** ORM 自动建表；其它表的 **INSERT/UPDATE** 须符合项目迁移与业务红线。一键入库**不得**在未经用户点击时静默写入。
 
 ### 12.6 输入净化
 
 - `follow_up_message`：最大 2000 字符
-- Mongo 查询参数：显式 escape（尽管 motor 参数化已基本免疫）
+- 对 `reports_url` / `screenshot_url` 做域名白名单与长度校验，避免 SSRF 风险
 - CodeHub URL：拼接前用白名单校验域名（必须匹配 `AIFA_CODEHUB_BASE_URL` 的域）
 
 ---
@@ -754,7 +834,6 @@ services:
       - AIFA_PORT=8080
       - AIFA_LLM_API_KEY=${AIFA_LLM_API_KEY}
       - AIFA_LLM_BASE_URL=${AIFA_LLM_BASE_URL}
-      - AIFA_MONGO_URI=${AIFA_MONGO_URI}
       - AIFA_CODEHUB_BASE_URL=${AIFA_CODEHUB_BASE_URL}
       - AIFA_CODEHUB_TOKEN=${AIFA_CODEHUB_TOKEN}
       - AIFA_INTERNAL_TOKEN=${AIFA_INTERNAL_TOKEN}
@@ -795,38 +874,46 @@ services:
 |---|---|---|
 | ADR-01 | 独立服务而非 dt-report 内嵌模块 | 用户明确要求"解耦到独立进程/容器"；秘钥/成本/发布彻底隔离 |
 | ADR-02 | AIFA 零访问 dt_infra，由 dt-report 推送 payload | 与数据库红线一致；AIFA 不绑定 dt_infra schema |
-| ADR-03 | 单 Agent + 5 Skill + 5 Tool | 多 Agent 是过度工程；单 Agent 三阶段状态机已足够 |
+| ADR-03 | 单 Agent + 5 Skill + **4 Tool**（报告 HTML + 截图 + CodeHub×2） | 不传**日志** URL；截图/报告 URL 由 AIFA 拉取 |
 | ADR-04 | Agent 三阶段 Plan → Act → Synthesize，Skill 之间只传结构化摘要 | 防 token 爆炸；可预测可观测 |
 | ADR-05 | 前端 SSE 流式而非轮询 | 用户体验更好，代码增量很小 |
 | ADR-06 | 交互 = 一次性为主 + 轻量追问 | 用户明确选择；追问复用 session 摘要，不重跑 tool |
-| ADR-07 | 结果零数据库写入，只在侧边 Drawer 展示 | 用户明确选择；避免与现有写入流程冲突 |
-| ADR-08 | 仅 5 个 Tool，严格 async/timeout/截断/结构化错误/幂等/审计 | 生产级最小集合；足够支撑当前需求 |
+| ADR-07 | **分析草稿**（过程 + 完整结论）**默认不落业务库**；用户**一键确认**后仅将 **失败归类 + 详细原因** 写入 `pipeline_failure_reason`，并与「分析处理」「一键分析」owner 规则对齐（§1.4） | 兼顾可审计与人工确认；避免静默覆盖 |
+| ADR-08 | 仅 **4** 个 Tool，严格 async/timeout/截断/结构化错误/幂等/审计；**无日志 URL 抓取**；**报告/截图走契约 URL** | 生产级最小集合 |
 | ADR-09 | LLM 走 OpenAI 兼容协议，初期 GLM | 切换厂商零代码改动；初期最小配置 |
-| ADR-10 | Mongo 字段名全部走 env 配置 | AIFA 不控制 Mongo schema；换源只改 env |
+| ADR-10 | 证据拉取参数全部走配置 | 便于按环境切换报告/截图源策略，避免硬编码 |
 | ADR-11 | CodeHub 初期唯一实现，同时保留 `CodeRepoClient` Protocol | 生产级与简单的平衡；抽象成本可忽略 |
 | ADR-12 | Session 存内存 LRU；抽象为 Protocol 便于未来换 Redis | 初期单实例够用，无需 Redis 依赖 |
 | ADR-13 | 内部 service token 而非转发 JWT | 避免跨系统 token 语义污染 |
 | ADR-14 | AIFA 只绑内网，浏览器不直连 | 鉴权/限流/审计集中在 dt-report 一处 |
-| ADR-15 | dt-report 侧唯一改动 = ai_proxy + ai_context_builder 两个文件 | 不污染现有 service，顺便推动 sys_audit_log 落地 |
+| ADR-15 | dt-report 侧以 **独立模块** 增加 `ai_proxy`、`ai_context_builder`、**一键入库 API**；**避免修改现有 service 核心逻辑**，可复用其函数 | 降低回归面；入库与分析与现网规则一致 |
 | ADR-16 | 单请求 token 硬上限 + 按天成本聚合 | 防止单 bug 烧光一天配额 |
 | ADR-17 | Partial 优先于整单失败 | 降级优于失败，提高整体可用性 |
 | ADR-18 | Prompt 作为代码走 git，不做运行时热更新 | 便于 review 和回滚 |
 | ADR-19 | 前端 AI 组件独立目录，不污染 HistoryPage.tsx | HistoryPage.tsx 已 2010 行，继续塞会拖慢编辑和渲染 |
 | ADR-20 | Tab 懒加载，首次 mount 不自动发请求 | 避免好奇用户产生无意义 LLM 成本 |
+| ADR-21 | **截图/报告 URL** 由契约传入，**默认 AIFA httpx 拉取**；索引页在 **AIFA 内**解析；dt-report **可**预填直链作优化；张数/大小硬上限 | 与「AIFA 直连资源」一致；可选预展开减负 |
+| ADR-22 | **最近一次成功批次** 仅 dt-report 查询；URL **仅替换 batch**；失败降级见 §8.3 | AIFA 零 MySQL；与现网 URL 约定绑定 |
+| ADR-23 | **`spec_change`/`flaky` 证据不足不强判** | 防止无成功截图时模型胡判 |
+| ADR-24 | **单 `history_id` 10 次/分钟** 限流在 dt-report | 成本与防滥用 |
+| ADR-25 | **详细过程 = evidence + 阶段时间线**，短 `rationale_summary` 可选；不默认暴露完整 CoT | 可验收、可脱敏 |
+| ADR-26 | **二期** 批量后台队列 + 每任务 3min 超时 + 重试/取消（§9.6） | 与一期单条解耦交付 |
+| ADR-27 | **附加文件上传** 二期再做 | 降低一期范围 |
 
 ---
 
 ## 16. 未来演进方向
 
-列为未纳入当前版本范围的方向，供后续迭代参考：
+列为**未纳入一期**或**可持续优化**的方向（部分已在 §9.6、§1.4 有雏形）：
 
-1. **整批分析**：从单用例扩展到整批失败的聚类归因
-2. **历史 AI 报告沉淀**：将高质量报告经人工确认后写入 `pipeline_failure_reason.reason`，形成闭环（需产品层面决策，会打破 ADR-07）
-3. **多厂商灰度**：通过 A/B 路由在 GLM/Kimi/MiniMax 之间对比质量
-4. **Redis session**：多副本部署时替换 `SessionStore` 实现
-5. **Prometheus 指标**：接统一监控平台
-6. **离线评估集**：收集人工标注的失败样本作为 AIFA 质量回归测试
-7. **Fine-tune / RAG**：将项目特有的错误模式沉淀为知识库
+1. **批量队列 UI 与持久化**：多选、后台 worker、跨刷新恢复（可能引入 Redis 或任务表 + 迁移）
+2. **多厂商灰度**：通过 A/B 路由在 GLM/Kimi/MiniMax 之间对比质量
+3. **Redis session**：多副本部署时替换 `SessionStore` 实现
+4. **Prometheus 指标**：接统一监控平台
+5. **离线评估集**：收集人工标注的失败样本作为 AIFA 质量回归测试
+6. **Fine-tune / RAG**：将项目特有的错误模式沉淀为知识库
+7. **截图对比增强**：轻量图像相似度/关键区域裁剪后再送视觉模型（非一期必选）
+8. **附加文件上传**：分析请求附加用户文件（安全扫描、大小类型限制、独立存储设计）
 
 ---
 
@@ -835,25 +922,32 @@ services:
 - [ ] AIFA 进程完全独立，不 import 任何 `backend.*` 模块
 - [ ] AIFA 所有 env 以 `AIFA_` 开头
 - [ ] AIFA 不建立任何 MySQL 连接
-- [ ] 所有 5 个 tool 都是 async，都有 timeout 和截断
-- [ ] 所有 5 个 tool 返回结构化错误而非 raise
+- [ ] 所有 **4** 个 tool 都是 async，都有 timeout 和截断
+- [ ] 所有 **4** 个 tool 返回结构化错误而非 raise
+- [ ] 契约 **无 `log_url`**；文本证据主路径为 `reports_url`
 - [ ] Plan 阶段输出严格受 JSON schema 约束
 - [ ] Skill 之间只传结构化摘要，不传原始 tool output
 - [ ] Synthesize 阶段 prompt 输入长度有硬上限
 - [ ] 单请求累计 tokens 超过 `AIFA_MAX_TOKENS_PER_REQUEST` 自动熔断为 partial
-- [ ] 外部数据源故障返回 partial 而非 500
+- [ ] 外部数据源故障返回 partial 而非 500（**配置类** fail-loud 除外）
 - [ ] CodeHub 401 是 fail-loud（返回 500）
 - [ ] LLM API key 无效是 fail-loud
-- [ ] dt-report 侧只新增 `ai_proxy.py` 和 `ai_context_builder.py` 两个文件，不改现有 service
+- [ ] dt-report：`ai_proxy`、`ai_context_builder`、**一键入库 API** 职责清晰；**尽量不修改**现有 service 核心逻辑
+- [ ] **单 `history_id` 10 次/分钟** 限流生效，返回 429
+- [ ] **截图/报告 URL**：AIFA 拉取、索引页解析、张数/大小上限有文档与单测；可选 dt-report 预填直链
+- [ ] **`spec_change`/`flaky`** 在成功截图证据不足时**不强判**（契约或后处理校验）
+- [ ] 报告含 `stage_timeline`、`evidence`（可选 `id`）、`detailed_reason`、`failure_category`
+- [ ] 一键入库仅写 **`pipeline_failure_reason`** 约定字段，**须用户点击**，写审计
 - [ ] `HistoryPage.tsx` 零改动或仅改一行挂 Tab
 - [ ] 所有 AI 前端组件在独立目录 `ai_analysis/`
 - [ ] Tab 懒加载
-- [ ] 前端 session_id 由浏览器生成，Drawer 关闭即作废
+- [ ] 前端 session_id 由浏览器生成，Drawer 关闭即作废（与入库后读库展示区分）
 - [ ] 内部 service token 校验中间件存在且生效
 - [ ] AIFA 只绑内网
-- [ ] `sys_audit_log` 有写入点（在 ai_proxy 里）
+- [ ] `sys_audit_log`（或等价）在 **ai_proxy** 与 **一键入库** 有写入点
 - [ ] 日志脱敏：不落原始日志/diff/截图
 - [ ] Trace 每次请求生成完整记录
 - [ ] `/healthz` 和 `/metrics` 端点可用
 - [ ] 独立 Dockerfile，不装 Playwright
 - [ ] docker-compose 示例可直接拉起
+- [ ] （二期）§9.6 任务状态机、3min 超时、重试/取消、逐条结果入口（若本期承诺则本期验收）

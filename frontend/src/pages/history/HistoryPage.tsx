@@ -18,6 +18,7 @@ import {
   Select,
   Spin,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -38,6 +39,7 @@ import {
   type InheritSourceRecordItem,
   type BatchReportResponse,
 } from "../../services";
+import AIFailureAnalysisTab from "./components/ai_analysis/AIFailureAnalysisTab";
 
 const { Text, Title, Paragraph } = Typography;
 const REASON_CACHE_KEY = "history_failure_reason_cache";
@@ -241,6 +243,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<HistoryItem | null>(null);
+  const [drawerFailureTabKey, setDrawerFailureTabKey] = useState("failure");
   const [reasonExpanded, setReasonExpanded] = useState(false);
   const [form] = Form.useForm();
   const [processForm] = Form.useForm();  // 标注弹窗表单
@@ -1091,6 +1094,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const handleRowClick = (record: HistoryItem) => {
     setDrawerRecord(record);
     setDrawerVisible(true);
+    setDrawerFailureTabKey("failure");
     setReasonExpanded(false);
   };
 
@@ -1986,8 +1990,12 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
         title={<span style={{ fontSize: 18 }}>执行详情</span>}
         placement="right"
         width={480}
-        onClose={() => setDrawerVisible(false)}
+        onClose={() => {
+          setDrawerVisible(false);
+          setDrawerFailureTabKey("failure");
+        }}
         open={drawerVisible}
+        destroyOnClose
       >
         {drawerRecord && (
           <>
@@ -2038,72 +2046,89 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
             {(drawerRecord.case_result === "failed" || drawerRecord.case_result === "error") && (
               <>
                 <Divider style={{ margin: "16px 0" }} />
-                <div style={{ marginBottom: 16 }}>
-                  <Text strong style={{ fontSize: 16 }}>
-                    失败归因
-                  </Text>
-                </div>
-                <div style={{ marginBottom: 24 }}>
-                  <div style={{ marginBottom: 8 }}>
-                    <Text strong>跟踪人：</Text>
-                    {drawerRecord.failure_owner ?? "—"}
-                  </div>
-              <div style={{ marginBottom: 8 }}>
-                    <Text strong>失败原因：</Text>
-                    {drawerRecord.failed_type ?? "—"}
-                  </div>
-              {/* 粗略按字符数判断是否“超过约 3 行”，控制是否展示展开/收起按钮 */}
-              {(() => {
-                const text = drawerRecord.reason ?? "";
-                const canExpand = text.length > 100; // 约等于 3 行以上的长文案
-                return (
-              <div style={{ marginBottom: 8 }}>
-                <Text strong>详细原因：</Text>
-                {text ? (
-                  <div
-                    style={{
-                      marginTop: 4,
-                      padding: 8,
-                      borderRadius: 4,
-                      background: "#fafafa",
-                      border: "1px solid #f0f0f0",
-                      maxHeight: reasonExpanded ? 200 : 72, // 约 3 行高度
-                      overflowY: "auto",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {text}
-                  </div>
-                ) : (
-                  "—"
-                )}
-                {text && canExpand && (
-                  <div style={{ marginTop: 4, textAlign: "right" }}>
-                    <a
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setReasonExpanded((prev) => !prev);
-                      }}
-                    >
-                      {reasonExpanded ? "收起" : "展开更多"}
-                    </a>
-                  </div>
-                )}
-              </div>
-                );
-              })()}
-              <div style={{ marginBottom: 8 }}>
-                    <Text strong>分析人：</Text>
-                    {drawerRecord.failure_analyzer ?? "—"}
-                  </div>
-              <div>
-                <Text strong>分析时间：</Text>
-                {drawerRecord.analyzed_at
-                  ? drawerRecord.analyzed_at.replace("T", " ")
-                  : "—"}
-              </div>
-                </div>
+                <Tabs
+                  activeKey={drawerFailureTabKey}
+                  onChange={setDrawerFailureTabKey}
+                  items={[
+                    {
+                      key: "failure",
+                      label: "失败归因",
+                      children: (
+                        <div style={{ marginTop: 8, marginBottom: 8 }}>
+                          <div style={{ marginBottom: 8 }}>
+                            <Text strong>跟踪人：</Text>
+                            {drawerRecord.failure_owner ?? "—"}
+                          </div>
+                          <div style={{ marginBottom: 8 }}>
+                            <Text strong>失败原因：</Text>
+                            {drawerRecord.failed_type ?? "—"}
+                          </div>
+                          {(() => {
+                            const text = drawerRecord.reason ?? "";
+                            const canExpand = text.length > 100;
+                            return (
+                              <div style={{ marginBottom: 8 }}>
+                                <Text strong>详细原因：</Text>
+                                {text ? (
+                                  <div
+                                    style={{
+                                      marginTop: 4,
+                                      padding: 8,
+                                      borderRadius: 4,
+                                      background: "#fafafa",
+                                      border: "1px solid #f0f0f0",
+                                      maxHeight: reasonExpanded ? 200 : 72,
+                                      overflowY: "auto",
+                                      whiteSpace: "pre-wrap",
+                                      wordBreak: "break-word",
+                                    }}
+                                  >
+                                    {text}
+                                  </div>
+                                ) : (
+                                  "—"
+                                )}
+                                {text && canExpand && (
+                                  <div style={{ marginTop: 4, textAlign: "right" }}>
+                                    <a
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setReasonExpanded((prev) => !prev);
+                                      }}
+                                    >
+                                      {reasonExpanded ? "收起" : "展开更多"}
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          <div style={{ marginBottom: 8 }}>
+                            <Text strong>分析人：</Text>
+                            {drawerRecord.failure_analyzer ?? "—"}
+                          </div>
+                          <div>
+                            <Text strong>分析时间：</Text>
+                            {drawerRecord.analyzed_at
+                              ? drawerRecord.analyzed_at.replace("T", " ")
+                              : "—"}
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      key: "ai",
+                      label: "AI 归因(beta)",
+                      children: (
+                        <AIFailureAnalysisTab
+                          key={drawerRecord.id}
+                          historyId={drawerRecord.id}
+                          caseResult={drawerRecord.case_result}
+                        />
+                      ),
+                    },
+                  ]}
+                />
               </>
             )}
 

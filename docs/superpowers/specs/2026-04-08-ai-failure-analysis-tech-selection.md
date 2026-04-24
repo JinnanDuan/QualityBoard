@@ -1,10 +1,12 @@
 # AI 辅助失败原因分析 — 技术选型
 
 - **文档类型**：技术选型（Tech Selection）
-- **关联文档**：同目录下的 `2026-04-08-ai-failure-analysis-architecture.md`（架构设计）
-- **状态**：Draft（待评审）
+- **关联文档**：
+  - `2026-04-08-ai-failure-analysis-architecture.md`（架构设计）
+  - `2026-04-14-ai-failure-analysis-implementation-plan.md`（实现计划与分期）
+- **状态**：Draft（待评审，2026-04-14 与架构同步修订）
 - **作者**：AI 助手 × djn
-- **日期**：2026-04-08
+- **日期**：2026-04-08（初稿）；**修订**：2026-04-14
 
 ---
 
@@ -15,6 +17,8 @@
 两份文档严格分离：
 - **架构文档**里凡是涉及具体技术名的地方，本文档都要给出**选型理由**和**备选**。
 - 本文档不重复架构细节；看到"为什么 Agent 要分三阶段"之类问题请回查架构文档。
+
+**2026-04-14 同步说明**：**不向 AIFA 传日志 URL**；Phase B 主证据来源为 **`reports_url`（测试报告 HTML）+ `screenshot_url`（截图目录/索引）**，由 **AIFA 使用 `httpx` 直连拉取**；索引页/HTML 解析使用 **`selectolax` + `httpx`**（见 §6）。dt-report **可选**预填直链数组。**不**引入 Playwright。
 
 ---
 
@@ -156,50 +160,48 @@ AIFA_LLM_VISION_MODEL
 | requests + anyio 桥接 | ✘ | 同步库强转 async 是反模式 |
 
 **复用策略**：
-- AIFA 启动时建立**单例** `httpx.AsyncClient`，所有 tool（`fetch_log_html` / `fetch_screenshot_b64` / `codehub_*`）共享
+- AIFA 启动时建立**单例** `httpx.AsyncClient`，供 **`fetch_report_html` / `fetch_screenshot_b64` / `codehub_*`** 等 tool 共享（**无**按**日志** URL 的 HTML 抓取）
 - 针对外部调用打 timeout（架构 §8 定义）
 - 不复用 dt-report 的 httpx client 实例（跨进程，无意义）
 
 ---
 
-## 6. HTML 解析
+## 6. HTML 解析（AIFA：`selectolax`）
 
-**选择：`selectolax`**
+**架构约定**：AIFA **不**按**日志** HTML URL 抓取；对 **`reports_url`（测试报告 HTML）** 与 **截图目录索引页（HTML）** 的解析，**AIFA** 使用 **`selectolax`**（与架构 §6.2 `fetch_report_html` / `fetch_screenshot_b64` 行为一致）。
+
+**dt-report** 若**可选**预解析索引页，可选用同一技术栈；**非必选**。
 
 | 候选 | 决策 | 理由 |
 |---|---|---|
-| **selectolax** | ✓ | 基于 Modest / lexbor 引擎，比 BeautifulSoup 快 10 倍+，专为大 HTML 取正文优化 |
-| BeautifulSoup4 | △ | 功能更全但慢；我们只要 `body` 纯文本，不需要 BS4 的 DOM 操作 |
-| lxml | △ | 也快，但 API 更啰嗦；selectolax 封装更直观 |
-| 正则直接抽 | ✘ | 上游 HTML 结构变化风险高，正则维护成本大 |
-| Playwright/Headless browser | ✘ | 过度方案，日志 HTML 不需要 JS 执行；会重新引入 Playwright 依赖 |
+| **selectolax**（**AIFA 推荐必选**，兼 dt-report 可选） | ✓ | 解析报告 HTML、截图索引页 |
+| BeautifulSoup4 | △ | 功能更全但慢 |
+| lxml | △ | API 较啰嗦 |
+| Playwright/Headless browser | ✘ | 过度；不引入 |
 
-**典型用法**：
+**典型用法**（索引页解析示意）：
 ```python
 from selectolax.parser import HTMLParser
 tree = HTMLParser(html)
-text = tree.css_first("body").text(separator="\n", strip=True)
+# 按现网 DOM 抽取图片直链，选择器实现阶段确定
 ```
 
 ---
 
-## 7. MongoDB 驱动
+## 7. 证据拉取策略
 
-**选择：`motor`**
+**选择：统一 `httpx` 拉取 + `selectolax` 解析**
 
 | 候选 | 决策 | 理由 |
 |---|---|---|
-| **motor** | ✓ | MongoDB 官方 async 驱动；与 `pymongo` 同宗，API 熟悉度高 |
-| pymongo | ✘ | 同步驱动，违反原则 3 |
-| beanie / odmantic | ✘ | ORM 层过度抽象；AIFA 只做只读 `find`，不需要 schema 定义 |
+| **httpx + selectolax** | ✓ | 统一覆盖报告 HTML 与截图索引页，且与现有代码风格一致 |
+| Playwright/Headless browser | ✘ | 运行时重、维护复杂，不符合最小依赖原则 |
+| requests + bs4 | ✘ | 同步调用不满足 async 约束 |
 
 **使用约束**：
-- 只用 `find`，不用 `aggregate` / `mapReduce`（降低权限要求、减少对 Mongo 集群压力）
-- 启动时建单例 `AsyncIOMotorClient`，连接池 10
-- 只读用户（架构 §8.2）
-
-### 7.1 字段映射配置
-因为 AIFA 不控制 Mongo schema，所有字段名走 env（架构 §8.2）。不把字段名硬编码到代码里。
+- 报告抓取统一走 `fetch_report_html(reports_url)`，并做 `max_chars` 截断。
+- 截图抓取统一走 `fetch_screenshot_b64(screenshot_url)`，支持 `image/*` 直链或索引页解析。
+- 索引页解析出的图片数量、单图大小都必须有硬上限。
 
 ---
 
@@ -310,11 +312,11 @@ class CodeHubClient(CodeRepoClient):
 |---|---|---|
 | 测试框架 | **pytest + pytest-asyncio** | 与 dt-report 一致 |
 | HTTP mock | **pytest-httpx** | httpx 官方配套 |
-| Mongo mock | **mongomock-motor** | motor 配套；不必起真 Mongo |
+| Report/Screenshot mock | **pytest-httpx** | 通过 httpx mock 覆盖 HTML 与图片拉取路径 |
 | LLM mock | 自写 fake client（实现 `LLMClient` Protocol） | 真实 LLM 调用不可用于单元测试 |
 | 覆盖率 | **pytest-cov** | 标配 |
 
-**集成测试**：额外提供 docker-compose.test.yml，拉起真 Mongo + mock CodeHub + mock LLM gateway 做端到端。
+**集成测试**：额外提供 docker-compose.test.yml，拉起 mock 报告/截图源 + mock CodeHub + mock LLM gateway 做端到端。
 
 ---
 
@@ -347,11 +349,8 @@ pydantic-settings==2.5.0
 # HTTP
 httpx==0.27.0
 
-# HTML 解析
+# HTML 解析（AIFA：reports_url + 截图索引页；与架构 §6.2 一致）
 selectolax==0.3.21
-
-# MongoDB
-motor==3.5.1
 
 # LLM
 openai==1.54.0
@@ -363,7 +362,6 @@ cachetools==5.5.0
 pytest==8.3.0
 pytest-asyncio==0.24.0
 pytest-httpx==0.32.0
-mongomock-motor==0.0.33
 pytest-cov==5.0.0
 ```
 
@@ -395,26 +393,27 @@ pytest-cov==5.0.0
 ## 17. 选型影响评估
 
 ### 17.1 对 dt-report 的影响
-**几乎零影响**：
-- 后端：新增 2 个薄文件（`ai_proxy.py` + `ai_context_builder.py`），不动现有 service
-- 前端：新增独立目录 `ai_analysis/`，`HistoryPage.tsx` 仅需加一行挂 Tab
-- 依赖：**无新增**
-- 部署：docker-compose 新增一个 service
-- 数据库：**零变更**
+**可控增量**（相对初版「仅两文件」已扩展，见架构 §3.3、§1.4）：
+- 后端：新增 **`ai_proxy.py`**、**`ai_context_builder.py`**、**一键入库 API**（文件名以实现为准）；**尽量不修改**现有 service 核心逻辑，可复用 `failure_process_service` 等与「分析处理」一致的写入规则
+- 前端：新增独立目录 `ai_analysis/`（含报告、时间线、一键入库按钮），`HistoryPage.tsx` 仍建议仅加一行挂 Tab
+- 依赖：**Python 侧仍可无新增**（目录解析若复用 `selectolax`，与 AIFA 对齐时需在 dt-report `requirements.txt` 评估是否已存在；若 dt-report 已含则不加）
+- 部署：docker-compose 新增一个 service（AIFA）
+- 数据库：**一键入库**写入既有 **`pipeline_failure_reason`** 列时**可无表结构变更**；若新增列必须走项目 SQL 迁移与 ORM 对齐
 
 ### 17.2 对运维的影响
 - 需要运维额外维护：
   - 一个 Docker 镜像的构建/发布
   - 一套 `AIFA_*` env 的管理（尤其 API key 与 token）
   - 一个内网地址与防火墙规则
-  - Mongo 只读账号的申请
+  - 报告/截图源的访问连通性确认
   - CodeHub service token 的申请
 
 ### 17.3 对成本的影响
 - **新增现金成本**：LLM 调用费（按 SLO 目标 ≤ 0.5 元/请求估算，按日请求量乘积预估月开销）
 - **硬上限熔断**：`AIFA_MAX_TOKENS_PER_REQUEST` 防单次失控
 - **并发上限熔断**：`AIFA_MAX_CONCURRENT_ANALYSES` 防瞬时爆发
-- **用户侧速率限制**：dt-report `ai_proxy` 对同一用户限流（每分钟 ≤10、每小时 ≤50）
+- **用户侧速率限制（以架构 §12.4 为准）**：**同一 `history_id` 1 分钟内最多 10 次**发起分析；可选叠加「同一用户」全局限流（如每分钟 / 每小时上限）
+- **转发超时**：dt-report → AIFA 的 `httpx` 客户端建议 **SSE 总读超时 180s（3 分钟）**（与架构 §3.3、§9.6 一致）
 
 ---
 
@@ -426,8 +425,8 @@ pytest-cov==5.0.0
 - [ ] FastAPI + Uvicorn + pydantic v2
 - [ ] 所有 env 经 `pydantic-settings` 加载，前缀 `AIFA_`
 - [ ] httpx 单例 AsyncClient 全局共享
-- [ ] selectolax 处理 HTML 日志
-- [ ] motor 单例 `AsyncIOMotorClient`
+- [ ] **无日志 URL 抓取**；证据主路径为 `reports_url` + `screenshot_url`
+- [ ] **AIFA** 对 `reports_url`、截图索引 HTML 使用 **selectolax**（与 `fetch_report_html` 等 tool 一致）
 - [ ] `openai` SDK（`AsyncOpenAI`）+ `base_url` 指向 ZhipuAI
 - [ ] 文本/视觉模型名完全从 env 读取
 - [ ] `CodeRepoClient` Protocol 存在；初期仅实现 `CodeHubClient`
@@ -438,5 +437,6 @@ pytest-cov==5.0.0
 - [ ] 所有依赖在 `requirements.txt` 锁死 `==` 小版本
 - [ ] 前端零新增依赖（只用原生 EventSource + crypto.randomUUID）
 - [ ] `HistoryPage.tsx` 改动 ≤ 1 行
+- [ ] dt-report 转发 AIFA 的 httpx 客户端配置 **180s** 级读超时（或与架构一致的可调值）
 - [ ] docker-compose 可拉起 dt-report + AIFA 两个 service
-- [ ] docker-compose.test.yml 可跑端到端测试（含 mock Mongo/CodeHub/LLM）
+- [ ] docker-compose.test.yml 可跑端到端测试（含 mock 报告/截图源 + CodeHub/LLM）

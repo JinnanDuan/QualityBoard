@@ -31,6 +31,18 @@ class Settings(BaseSettings):
     # 站点对外根 URL（无尾部斜杠），用于一键通知 WeLink 卡片内 /history 绝对链接
     PUBLIC_APP_URL: str = ""
 
+    # AI 失败分析：main_module → 仓库映射（YAML，模板见 config/module_repo_mapping.yaml.example）
+    AI_MODULE_REPO_MAPPING_PATH: str = ""
+    # AI 失败分析：AIFA 服务地址（不含 /v1/analyze）
+    AIFA_BASE_URL: str = "http://127.0.0.1:8080"
+    # dt-report -> AIFA 内部鉴权 token
+    AIFA_INTERNAL_TOKEN: str = ""
+    # A5 限流：单 history_id 窗口（秒）与阈值
+    AI_ANALYZE_RATE_LIMIT_WINDOW_SECONDS: int = 60
+    AI_ANALYZE_RATE_LIMIT_MAX_REQUESTS: int = 10
+    # dt-report -> AIFA 单次调用超时（秒）
+    AI_ANALYZE_TIMEOUT_SECONDS: int = 180
+
     # LDAP 域登录（LDAP_HOST 留空则使用 MVP 密码模式）
     LDAP_HOST: str = ""
     LDAP_PORT: int = 389
