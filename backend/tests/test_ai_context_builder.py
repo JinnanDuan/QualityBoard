@@ -4,26 +4,19 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from backend.models.pipeline_history import PipelineHistory
-from backend.services.ai_context_builder import (
-    AIContextHistoryNotFoundError,
-    RECENT_EXECUTIONS_LIMIT,
-    _parse_module_repo_mapping_file,
-    _repo_hint_for_main_module,
-    _truncate,
-    build_analyze_payload,
-)
+from backend.services import ai_context_builder
 from backend.services.history_service import list_recent_executions_by_case_platform
 
 
 def test_truncate_short_unchanged() -> None:
-    assert _truncate("abc") == "abc"
-    assert _truncate(None) is None
-    assert _truncate("  ") is None
+    assert ai_context_builder._truncate("abc") == "abc"
+    assert ai_context_builder._truncate(None) is None
+    assert ai_context_builder._truncate("  ") is None
 
 
 def test_truncate_long() -> None:
     s = "x" * 5000
-    out = _truncate(s, max_chars=100)
+    out = ai_context_builder._truncate(s, max_chars=100)
     assert out is not None
     assert len(out) == 100
     assert out.endswith("...")
@@ -31,18 +24,24 @@ def test_truncate_long() -> None:
 
 def test_parse_module_repo_mapping_missing_file(tmp_path) -> None:
     p = str(tmp_path / "nope.yaml")
-    _parse_module_repo_mapping_file.cache_clear()
-    assert _parse_module_repo_mapping_file(p) == ()
+    ai_context_builder._parse_module_repo_mapping_file.cache_clear()
+    assert ai_context_builder._parse_module_repo_mapping_file(p) == ()
 
 
 def test_parse_module_repo_mapping_valid(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     y = tmp_path / "m.yaml"
     y.write_text(
-        "mappings:\n  - main_module: \"auth\"\n    repo_url: \"https://h.example/r\"\n    default_branch: \"main\"\n    path_hints: [\"a/\"]\n",
+        (
+            "mappings:\n"
+            "  - main_module: \"auth\"\n"
+            "    repo_url: \"https://h.example/r\"\n"
+            "    default_branch: \"main\"\n"
+            "    path_hints: [\"a/\"]\n"
+        ),
         encoding="utf-8",
     )
-    _parse_module_repo_mapping_file.cache_clear()
-    t = _parse_module_repo_mapping_file(str(y.resolve()))
+    ai_context_builder._parse_module_repo_mapping_file.cache_clear()
+    t = ai_context_builder._parse_module_repo_mapping_file(str(y.resolve()))
     assert len(t) == 1
     assert t[0].get("main_module") == "auth"
 
@@ -57,11 +56,11 @@ def test_repo_hint_for_main_module(monkeypatch: pytest.MonkeyPatch, tmp_path) ->
         "backend.services.ai_context_builder.settings.AI_MODULE_REPO_MAPPING_PATH",
         str(y.resolve()),
     )
-    _parse_module_repo_mapping_file.cache_clear()
-    h = _repo_hint_for_main_module("pay")
+    ai_context_builder._parse_module_repo_mapping_file.cache_clear()
+    h = ai_context_builder._repo_hint_for_main_module("pay")
     assert h.get("repo_url") == "https://h.example/pay"
     assert h.get("default_branch") == "dev"
-    _parse_module_repo_mapping_file.cache_clear()
+    ai_context_builder._parse_module_repo_mapping_file.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -70,8 +69,8 @@ async def test_build_analyze_payload_history_not_found() -> None:
     r1.scalar_one_or_none.return_value = None
     mock_db = MagicMock()
     mock_db.execute = AsyncMock(return_value=r1)
-    with pytest.raises(AIContextHistoryNotFoundError) as ei:
-        await build_analyze_payload(mock_db, 999)
+    with pytest.raises(ai_context_builder.AIContextHistoryNotFoundError) as ei:
+        await ai_context_builder.build_analyze_payload(mock_db, 999)
     assert ei.value.history_id == 999
 
 
@@ -103,7 +102,7 @@ async def test_build_analyze_payload_no_log_url(monkeypatch: pytest.MonkeyPatch)
     mock_db = MagicMock()
     mock_db.execute = AsyncMock(side_effect=[r1, r2])
 
-    payload = await build_analyze_payload(mock_db, 42)
+    payload = await ai_context_builder.build_analyze_payload(mock_db, 42)
     raw = json.dumps(payload, ensure_ascii=False)
     assert "log_url" not in raw
     assert "SECRET" not in raw
@@ -115,7 +114,7 @@ async def test_build_analyze_payload_no_log_url(monkeypatch: pytest.MonkeyPatch)
     assert payload["case_context"]["screenshot_index_url"] == "http://img/s.png"
 
     assert isinstance(payload["recent_executions"], list)
-    assert len(payload["recent_executions"]) <= RECENT_EXECUTIONS_LIMIT
+    assert len(payload["recent_executions"]) <= ai_context_builder.RECENT_EXECUTIONS_LIMIT
     assert payload["repo_hint"] == {}
 
 
