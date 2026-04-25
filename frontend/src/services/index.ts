@@ -79,6 +79,15 @@ export interface HistoryFilterOptions {
   failed_type: string[];
 }
 
+/** 历史页搜索模板（后端按当前登录用户隔离） */
+export interface HistorySearchTemplateItem {
+  id: number;
+  name: string;
+  query_params: HistoryQueryParams;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface CaseFailedTypeItem {
   id: number;
   failed_reason_type: string;  // 失败类型，如 bug、环境问题
@@ -200,6 +209,13 @@ export interface BatchReportResponse {
   platforms: BatchReportPlatformGroup[];
 }
 
+/** GET /history/oh-daily-export OH 平台日报 TSV */
+export interface OhDailyExportResponse {
+  start_time: string;
+  platform_filter: string[];
+  export_text: string;
+}
+
 export interface InheritSourceOptions {
   case_names: string[];
   platforms: string[];
@@ -307,6 +323,27 @@ export const historyApi = {
     return request.get("/history/batch-report", {
       params: { start_time: startTime },
     }) as any;
+  },
+  /** OH 平台日报：按批次返回与模板一致的 TSV 文本 */
+  ohDailyExport(startTime: string): Promise<OhDailyExportResponse> {
+    return request.get("/history/oh-daily-export", {
+      params: { start_time: startTime },
+    }) as any;
+  },
+  /** 当前用户的历史页搜索模板列表 */
+  listSearchTemplates(): Promise<HistorySearchTemplateItem[]> {
+    return request.get("/history/search-templates") as any;
+  },
+  /** 保存搜索模板（每用户最多 10 条） */
+  createSearchTemplate(data: {
+    name: string;
+    query_params: HistoryQueryParams;
+  }): Promise<HistorySearchTemplateItem> {
+    return request.post("/history/search-templates", data) as any;
+  },
+  /** 删除搜索模板 */
+  deleteSearchTemplate(templateId: number): Promise<{ success: boolean; message: string }> {
+    return request.delete(`/history/search-templates/${templateId}`) as any;
   },
 };
 

@@ -160,6 +160,7 @@ Page 组件 setState → Ant Design Table 渲染
 - 前端 TypeScript 接口与后端 Pydantic Schema 字段名严格一致（snake_case）
 - 分页统一使用 `PageResponse<T>` 泛型接口 `{ items, total, page, page_size }`
 - Axios 响应拦截器直接提取 `response.data`，API 方法返回业务数据
+- 详细执行历史 **搜索模板** 经 `GET/POST/DELETE /api/v1/history/search-templates` 存表 `history_search_template`（`employee_id` 与 JWT `sub` 一致）；应用模板时前端将快照写入 URL 后仍走 `historyApi.list` 拉数（规约见 `docs/02_prd.md` Story 1.3）
 
 ---
 

@@ -48,6 +48,7 @@ api/v1/     → services/     → schemas/     → models/
 ## 实现成熟度地图
 
 - **已非常成熟**：`history` 模块（`HistoryPage.tsx` 与 `HistoryStringMultiFilter.tsx`；主页面约 2100+ 行量级，含多维度筛选含 `*_contains`、一键功能 Drawer/弹窗）、失败标注、失败原因继承、一键分析、一键通知 WeLink、首页大盘、登录认证、DB schema 校验、容器部署。
+- **已实现**：详细执行历史 **搜索模板**（表 `history_search_template`、每用户 10 条、`/api/v1/history/search-templates`，工具栏保存/模板条应用与删除），规约见 `docs/02_prd.md` Story 1.3。
 - **仍是占位**：分组概览、用例管理、**总结报告（report_snapshot 表已建未用）**、**通知中心（定时催办、防打扰）**、管理员后台（用户/模块/字典 CRUD 前后端）、**sys_audit_log 审计写入**。
 
 ## 规约（spec 文件位置）

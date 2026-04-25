@@ -41,6 +41,10 @@ Thumbs.db
 backend/data/*
 !backend/data/.gitkeep
 
+# 日报导出表格格式已固化在 backend/constants/oh_daily_export_table.py，不提交本地 Excel 模板
+数据导出模板.xlsx
+~$数据导出模板.xlsx
+
 # Runtime
 .pid
 nohup.out
