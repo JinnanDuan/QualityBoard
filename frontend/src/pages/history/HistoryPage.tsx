@@ -16,6 +16,7 @@ import {
   Row,
   Col,
   Select,
+  Space,
   Spin,
   Table,
   Tabs,
@@ -23,7 +24,7 @@ import {
   Tooltip,
   Typography,
 } from "antd";
-import { EyeOutlined } from "@ant-design/icons";
+import { CloseOutlined, EyeOutlined } from "@ant-design/icons";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
 import { HistoryStringMultiFilter } from "./HistoryStringMultiFilter";
 import {
@@ -38,12 +39,25 @@ import {
   type InheritSourceOptions,
   type InheritSourceRecordItem,
   type BatchReportResponse,
+  type HistorySearchTemplateItem,
 } from "../../services";
 import AIFailureAnalysisTab from "./components/ai_analysis/AIFailureAnalysisTab";
 
 const { Text, Title, Paragraph } = Typography;
 const REASON_CACHE_KEY = "history_failure_reason_cache";
 const REASON_CACHE_LIMIT = 30;
+const MAX_HISTORY_SEARCH_TEMPLATES = 10;
+
+function extractApiDetail(err: unknown): string {
+  const ax = err as { response?: { data?: { detail?: unknown } } };
+  const d = ax?.response?.data?.detail;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) {
+    const first = d[0] as { msg?: string } | undefined;
+    if (first?.msg) return String(first.msg);
+  }
+  return "操作失败";
+}
 
 /** 轮次群通告正文（与产品约定模板一致） */
 function buildRollingReportMarkdown(data: BatchReportResponse): string {
@@ -77,6 +91,19 @@ function buildRollingReportMarkdown(data: BatchReportResponse): string {
   lines.push("");
   lines.push("——————————————");
   return lines.join("\n");
+}
+
+/** 将后端拼装的日报 TSV 解析为表格行（每行 6 列，与 `oh_daily_export_table` 模板一致） */
+function parseDailyExportTsv(tsv: string): string[][] | null {
+  const trimmed = tsv.trim();
+  if (!trimmed) return null;
+  const rows = trimmed.split(/\r?\n/).map((line) => line.split("\t"));
+  if (rows.length < 1) return null;
+  return rows.map((cells) => {
+    const next = [...cells];
+    while (next.length < 6) next.push("");
+    return next.length > 6 ? next.slice(0, 6) : next;
+  });
 }
 
 /** 钻取页链接（spec/12），新标签打开 */
@@ -266,6 +293,14 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportText, setReportText] = useState("");
+  /** 日报数据弹窗：批次子串搜索 + OH 平台 TSV */
+  const [dailyExportModalOpen, setDailyExportModalOpen] = useState(false);
+  const [dailyBatchSearchInput, setDailyBatchSearchInput] = useState("");
+  const [dailyFilteredBatches, setDailyFilteredBatches] = useState<string[]>([]);
+  const [dailySelectedBatch, setDailySelectedBatch] = useState<string | null>(null);
+  const [dailyExportText, setDailyExportText] = useState("");
+  const [dailySearchLoading, setDailySearchLoading] = useState(false);
+  const [dailyExportFetchLoading, setDailyExportFetchLoading] = useState(false);
   const [inheritBatchOptions, setInheritBatchOptions] = useState<string[]>([]);
   const [inheritBatchOptionsLoading, setInheritBatchOptionsLoading] = useState(false);
   const [inheritSourceOptions, setInheritSourceOptions] = useState<InheritSourceOptions>({
@@ -277,6 +312,18 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const [inheritSourceRecords, setInheritSourceRecords] = useState<InheritSourceRecordItem[]>([]);
   const [inheritSourceRecordsLoading, setInheritSourceRecordsLoading] = useState(false);
   const inheritMode = Form.useWatch("inherit_mode", inheritForm);
+
+  const [searchTemplates, setSearchTemplates] = useState<HistorySearchTemplateItem[]>([]);
+  const [searchTemplatesLoading, setSearchTemplatesLoading] = useState(false);
+  /** 仅当用户点击「筛选确认」后为 true；保存成功或「筛选重置」后为 false */
+  const [canSaveSearchTemplate, setCanSaveSearchTemplate] = useState(false);
+  const lastToolbarQueryRef = useRef<HistoryQueryParams | null>(null);
+  const [saveSearchTemplateModalOpen, setSaveSearchTemplateModalOpen] = useState(false);
+  const [saveSearchTemplateName, setSaveSearchTemplateName] = useState("");
+  const [saveSearchTemplateNameDuplicate, setSaveSearchTemplateNameDuplicate] = useState(false);
+  const [saveSearchTemplateSubmitting, setSaveSearchTemplateSubmitting] = useState(false);
+  /** 当前用于查询的模板 id（删除该模板时不改 URL） */
+  const [activeSearchTemplateId, setActiveSearchTemplateId] = useState<number | null>(null);
 
   /** 中间表格区高度（视口剩余），供 Ant Design Table `scroll.y` 使用 */
   const tableAreaRef = useRef<HTMLDivElement>(null);
@@ -420,6 +467,22 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
     fetchOptions();
   }, []);
 
+  const loadSearchTemplates = useCallback(async () => {
+    setSearchTemplatesLoading(true);
+    try {
+      const list = await historyApi.listSearchTemplates();
+      setSearchTemplates(list);
+    } catch {
+      setSearchTemplates([]);
+    } finally {
+      setSearchTemplatesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSearchTemplates();
+  }, [loadSearchTemplates]);
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem(REASON_CACHE_KEY);
@@ -525,6 +588,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   }, []);
 
   const handleFilterChange = () => {
+    const prev = paramsFromUrl();
     const values = form.getFieldsValue();
     const inOrContains = (arr: string[] | undefined, c: string | undefined) => {
       if (arr?.length) return { list: arr as string[], contains: undefined };
@@ -565,12 +629,18 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       failure_owner_contains: fo.contains,
       failed_type: ft.list,
       failed_type_contains: ft.contains,
+      sort_field: prev.sort_field,
+      sort_order: prev.sort_order,
     };
     syncParamsToUrl(params);
     setPagination((p) => ({ ...p, current: 1 }));
+    lastToolbarQueryRef.current = params;
+    setCanSaveSearchTemplate(true);
   };
 
   const handleReset = () => {
+    setCanSaveSearchTemplate(false);
+    lastToolbarQueryRef.current = null;
     if (drilldown && drilldownAnchorRef.current) {
       syncParamsToUrl({
         page: 1,
@@ -584,6 +654,97 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       syncParamsToUrl({ page: 1, page_size: pagination.pageSize });
     }
     setPagination((p) => ({ ...p, current: 1 }));
+  };
+
+  const openSaveSearchTemplateModal = () => {
+    if (searchTemplates.length >= MAX_HISTORY_SEARCH_TEMPLATES) {
+      message.warning("模板已达上限，请先删除模板");
+      return;
+    }
+    if (!lastToolbarQueryRef.current) return;
+    setSaveSearchTemplateName("");
+    setSaveSearchTemplateNameDuplicate(false);
+    setSaveSearchTemplateModalOpen(true);
+  };
+
+  const handleSaveSearchTemplateModalCancel = () => {
+    setSaveSearchTemplateModalOpen(false);
+    setSaveSearchTemplateName("");
+    setSaveSearchTemplateNameDuplicate(false);
+  };
+
+  const onSaveSearchTemplateNameChange = (v: string) => {
+    setSaveSearchTemplateName(v);
+    const t = v.trim();
+    if (!t) {
+      setSaveSearchTemplateNameDuplicate(false);
+      return;
+    }
+    const dup = searchTemplates.some((x) => x.name.trim() === t);
+    setSaveSearchTemplateNameDuplicate(dup);
+  };
+
+  const handleSaveSearchTemplateOk = async () => {
+    const name = saveSearchTemplateName.trim();
+    if (!name || saveSearchTemplateNameDuplicate) return;
+    const qp = lastToolbarQueryRef.current;
+    if (!qp) return;
+    setSaveSearchTemplateSubmitting(true);
+    try {
+      await historyApi.createSearchTemplate({ name, query_params: qp });
+      message.success("模板已保存");
+      setSaveSearchTemplateModalOpen(false);
+      setSaveSearchTemplateName("");
+      setSaveSearchTemplateNameDuplicate(false);
+      setCanSaveSearchTemplate(false);
+      lastToolbarQueryRef.current = null;
+      await loadSearchTemplates();
+    } catch (e: unknown) {
+      const msg = extractApiDetail(e);
+      if (msg.includes("模板名称已存在")) {
+        setSaveSearchTemplateNameDuplicate(true);
+      } else {
+        message.error(msg);
+      }
+    } finally {
+      setSaveSearchTemplateSubmitting(false);
+    }
+  };
+
+  const applySearchTemplate = (tpl: HistorySearchTemplateItem) => {
+    const base: HistoryQueryParams = { ...tpl.query_params };
+    if (drilldown && drilldownAnchorRef.current) {
+      base.case_name = drilldownAnchorRef.current.case_name;
+      base.case_name_contains = drilldownAnchorRef.current.case_name_contains;
+      base.platform = drilldownAnchorRef.current.platform;
+      base.code_branch = drilldownAnchorRef.current.code_branch;
+    }
+    syncParamsToUrl(base);
+    setPagination({
+      current: base.page ?? 1,
+      pageSize: base.page_size ?? 20,
+    });
+    setActiveSearchTemplateId(tpl.id);
+  };
+
+  const confirmDeleteSearchTemplate = (tpl: HistorySearchTemplateItem) => {
+    Modal.confirm({
+      title: "是否删除该模板？",
+      okText: "确定",
+      cancelText: "取消",
+      onOk: async () => {
+        try {
+          await historyApi.deleteSearchTemplate(tpl.id);
+          message.success("已删除模板");
+          if (activeSearchTemplateId === tpl.id) {
+            setActiveSearchTemplateId(null);
+          }
+          await loadSearchTemplates();
+        } catch (e: unknown) {
+          message.error(extractApiDetail(e));
+        }
+      },
+    });
   };
 
   const handleTableChange = (
@@ -1009,6 +1170,102 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   };
 
   /** 非 HTTPS 或浏览器限制时 clipboard API 常失败，回退到 execCommand */
+  const openDailyExportModal = () => {
+    setDailyExportModalOpen(true);
+    setDailyBatchSearchInput("");
+    setDailyFilteredBatches([]);
+    setDailySelectedBatch(null);
+    setDailyExportText("");
+  };
+
+  const handleDailyExportModalClose = () => {
+    setDailyExportModalOpen(false);
+    setDailyBatchSearchInput("");
+    setDailyFilteredBatches([]);
+    setDailySelectedBatch(null);
+    setDailyExportText("");
+  };
+
+  const handleDailyBatchSearch = async () => {
+    setDailySearchLoading(true);
+    try {
+      let batches: string[] = [];
+      if (options?.start_time?.length) {
+        batches = options.start_time;
+      } else {
+        const opts = await historyApi.options();
+        setOptions(opts);
+        batches = opts.start_time ?? [];
+      }
+      const kw = dailyBatchSearchInput.trim().toLowerCase();
+      const filtered = kw
+        ? batches.filter((b) => (b ?? "").toString().toLowerCase().includes(kw))
+        : [...batches];
+      setDailyFilteredBatches(filtered);
+      if (!filtered.length) {
+        message.info(kw ? "没有匹配的批次" : "暂无批次数据");
+      }
+    } catch (e: unknown) {
+      message.error(extractApiDetail(e) || "加载批次列表失败");
+      setDailyFilteredBatches([]);
+    } finally {
+      setDailySearchLoading(false);
+    }
+  };
+
+  const handleDailySelectBatch = async (batch: string) => {
+    setDailySelectedBatch(batch);
+    setDailyExportText("");
+    setDailyExportFetchLoading(true);
+    try {
+      const res = await historyApi.ohDailyExport(batch);
+      setDailyExportText(res.export_text ?? "");
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } }; message?: string };
+      message.error(err?.response?.data?.detail || err?.message || "生成日报数据失败");
+    } finally {
+      setDailyExportFetchLoading(false);
+    }
+  };
+
+  const handleCopyDailyExport = async () => {
+    if (!dailyExportText) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(dailyExportText);
+        message.success("已复制到剪贴板");
+        return;
+      }
+    } catch {
+      /* 走下方回退 */
+    }
+    const ta = document.createElement("textarea");
+    ta.value = dailyExportText;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "0";
+    ta.style.left = "0";
+    ta.style.width = "1px";
+    ta.style.height = "1px";
+    ta.style.opacity = "0";
+    ta.style.pointerEvents = "none";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, dailyExportText.length);
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } finally {
+      document.body.removeChild(ta);
+    }
+    if (ok) {
+      message.success("已复制到剪贴板");
+    } else {
+      message.error("复制失败，请手动选择文本复制");
+    }
+  };
+
   const handleCopyReport = async () => {
     if (!reportText) return;
     try {
@@ -1588,8 +1845,79 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
               一键生成通报
             </Button>
           </Col>
+          <Col>
+            <Button type="default" onClick={openDailyExportModal} disabled={loading}>
+              日报数据
+            </Button>
+          </Col>
+          <Col>
+            <Button
+              type="default"
+              onClick={openSaveSearchTemplateModal}
+              disabled={!canSaveSearchTemplate || loading}
+            >
+              保存模板
+            </Button>
+          </Col>
+          <Col flex="auto" style={{ minWidth: 0 }}>
+            <Spin spinning={searchTemplatesLoading} size="small">
+              <div className="history-search-template-chips" aria-busy={searchTemplatesLoading}>
+                {searchTemplates.map((tpl) => (
+                  <div key={tpl.id} className="history-search-template-chip">
+                    <Tooltip title={tpl.name}>
+                      <button
+                        type="button"
+                        className="history-search-template-chip-main"
+                        onClick={() => applySearchTemplate(tpl)}
+                      >
+                        <span className="history-search-template-chip-label">{tpl.name}</span>
+                      </button>
+                    </Tooltip>
+                    <button
+                      type="button"
+                      className="history-search-template-chip-close"
+                      aria-label="删除模板"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        confirmDeleteSearchTemplate(tpl);
+                      }}
+                    >
+                      <CloseOutlined />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </Spin>
+          </Col>
         </Row>
       </Form>
+
+      <Modal
+        title="保存搜索模板"
+        open={saveSearchTemplateModalOpen}
+        onOk={() => void handleSaveSearchTemplateOk()}
+        onCancel={handleSaveSearchTemplateModalCancel}
+        confirmLoading={saveSearchTemplateSubmitting}
+        okText="确定"
+        cancelText="取消"
+        okButtonProps={{
+          disabled:
+            !saveSearchTemplateName.trim() || saveSearchTemplateNameDuplicate || saveSearchTemplateSubmitting,
+        }}
+        destroyOnClose
+      >
+        <div style={{ marginBottom: 8 }}>请输入模板名称</div>
+        {saveSearchTemplateNameDuplicate ? (
+          <div style={{ color: "#ff4d4f", marginBottom: 8 }}>模板名称已存在！</div>
+        ) : null}
+        <Input
+          placeholder="模板名称"
+          value={saveSearchTemplateName}
+          onChange={(e) => onSaveSearchTemplateNameChange(e.target.value)}
+          maxLength={100}
+          status={saveSearchTemplateNameDuplicate ? "error" : undefined}
+        />
+      </Modal>
 
       <div ref={tableAreaRef} className="history-page-table-area">
         <Table<HistoryItem>
@@ -1809,6 +2137,122 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
             rows={18}
             style={{ fontFamily: "monospace", fontSize: 13 }}
           />
+        </Spin>
+      </Modal>
+
+      <Modal
+        title="日报数据"
+        width={720}
+        open={dailyExportModalOpen}
+        onCancel={handleDailyExportModalClose}
+        footer={[
+          <Button
+            key="copy-daily"
+            type="primary"
+            onClick={() => void handleCopyDailyExport()}
+            disabled={dailyExportFetchLoading || !dailyExportText}
+          >
+            复制全文
+          </Button>,
+          <Button key="close-daily" onClick={handleDailyExportModalClose}>
+            关闭
+          </Button>,
+        ]}
+        destroyOnClose
+      >
+        <Paragraph type="secondary" style={{ marginBottom: 12, fontSize: 12 }}>
+          批次与页面「批次」筛选项同源；输入关键字后点「搜索」为子串匹配（不区分大小写）；留空搜索展示全部批次。点击某批次生成
+          OH 平台（platform=oh）日报；下方为表格预览（样式接近 Excel），请用「复制全文」粘贴到
+          Excel（保留制表符分列）。
+        </Paragraph>
+        <Space.Compact style={{ width: "100%", marginBottom: 12 }}>
+          <Input
+            placeholder="批次关键字，留空则展示全部"
+            value={dailyBatchSearchInput}
+            onChange={(e) => setDailyBatchSearchInput(e.target.value)}
+            onPressEnter={() => void handleDailyBatchSearch()}
+            allowClear
+          />
+          <Button type="primary" loading={dailySearchLoading} onClick={() => void handleDailyBatchSearch()}>
+            搜索
+          </Button>
+        </Space.Compact>
+        <div
+          style={{
+            maxHeight: 200,
+            overflowY: "auto",
+            marginBottom: 12,
+            padding: 8,
+            border: "1px solid #f0f0f0",
+            borderRadius: 4,
+            background: "#fafafa",
+          }}
+        >
+          {dailyFilteredBatches.length === 0 ? (
+            <Text type="secondary">
+              {dailySearchLoading ? "加载中…" : "点击「搜索」加载批次列表，或调整关键字后再搜"}
+            </Text>
+          ) : (
+            dailyFilteredBatches.map((b) => (
+              <div
+                key={b}
+                role="button"
+                tabIndex={0}
+                onClick={() => void handleDailySelectBatch(b)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    void handleDailySelectBatch(b);
+                  }
+                }}
+                style={{
+                  padding: "6px 8px",
+                  cursor: "pointer",
+                  borderRadius: 4,
+                  marginBottom: 4,
+                  background: dailySelectedBatch === b ? "#e6f7ff" : "transparent",
+                }}
+              >
+                {b}
+              </div>
+            ))
+          )}
+        </div>
+        <Spin spinning={dailyExportFetchLoading}>
+          {(() => {
+            if (dailyExportFetchLoading) {
+              return (
+                <div className="daily-export-preview-placeholder" style={{ minHeight: 200 }}>
+                  <Text type="secondary">正在生成日报数据…</Text>
+                </div>
+              );
+            }
+            const rows = parseDailyExportTsv(dailyExportText);
+            if (!rows?.length) {
+              return (
+                <div className="daily-export-preview-placeholder" style={{ minHeight: 200 }}>
+                  <Text type="secondary">
+                    {dailySelectedBatch ? "该批次暂无导出内容或加载失败" : "请先搜索并点击上方批次"}
+                  </Text>
+                </div>
+              );
+            }
+            return (
+              <div className="daily-export-preview-wrap">
+                <table className="daily-export-preview-table">
+                  <tbody>
+                    {rows.map((cells, ri) => (
+                      <tr key={ri} className={ri === 0 ? "daily-export-preview-row-header" : undefined}>
+                        {cells.map((cell, ci) => (
+                          <td key={ci}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </Spin>
       </Modal>
 

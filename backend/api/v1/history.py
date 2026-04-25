@@ -39,6 +39,7 @@ from backend.schemas.inherit_failure_reason import (
     InheritSourceRecordsResponse,
 )
 from backend.schemas.batch_report import BatchReportResponse
+from backend.schemas.oh_daily_export import OhDailyExportResponse
 from backend.schemas.one_click_analyze import OneClickAnalyzeRequest, OneClickAnalyzeResponse
 from backend.schemas.one_click_bug_notify import (
     OneClickBugNotifyRequest,
@@ -54,8 +55,15 @@ from backend.services.inherit_failure_reason_service import (
     inherit_failure_reason,
 )
 from backend.services.batch_report_service import get_batch_report
+from backend.services.oh_daily_export_service import get_oh_daily_export
 from backend.services.one_click_analyze_service import one_click_analyze
 from backend.services.one_click_bug_notify_service import one_click_bug_notify
+from backend.schemas.history_search_template import HistorySearchTemplateCreate, HistorySearchTemplateItem
+from backend.services.history_search_template_service import (
+    create_search_template,
+    delete_search_template,
+    list_search_templates,
+)
 
 # 创建一个路由器实例:
 # - prefix="/history": 这个路由器下的所有端点都自动加上 /history 前缀
@@ -165,6 +173,49 @@ async def get_batch_report_endpoint(
 ):
     """轮次通报：汇总该批次用例结果分布及失败原因为 bug 的按平台/跟踪人/主模块统计。"""
     return await get_batch_report(db, start_time)
+
+
+@router.get("/oh-daily-export", response_model=OhDailyExportResponse)
+async def get_oh_daily_export_endpoint(
+    start_time: str = Query(..., description="轮次（批次），与日报弹窗所选批次一致"),
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+):
+    """OH 平台（白名单 platform）日报：按模板维度统计各主模块分类用例数与通过率，返回可复制 TSV。"""
+    return await get_oh_daily_export(db, start_time)
+
+
+@router.get("/search-templates", response_model=List[HistorySearchTemplateItem])
+async def get_history_search_templates(
+    db: AsyncSession = Depends(get_db),
+    payload: dict = Depends(get_current_user),
+):
+    """当前登录用户的历史页搜索模板列表（按更新时间倒序）。"""
+    employee_id = payload.get("sub", "")
+    return await list_search_templates(db, employee_id)
+
+
+@router.post("/search-templates", response_model=HistorySearchTemplateItem)
+async def post_history_search_template(
+    body: HistorySearchTemplateCreate,
+    db: AsyncSession = Depends(get_db),
+    payload: dict = Depends(get_current_user),
+):
+    """保存当前筛选条件为搜索模板（每用户最多 10 条）。"""
+    employee_id = payload.get("sub", "")
+    return await create_search_template(db, employee_id, body)
+
+
+@router.delete("/search-templates/{template_id}")
+async def delete_history_search_template(
+    template_id: int,
+    db: AsyncSession = Depends(get_db),
+    payload: dict = Depends(get_current_user),
+):
+    """删除指定搜索模板（仅本人）。"""
+    employee_id = payload.get("sub", "")
+    await delete_search_template(db, employee_id, template_id)
+    return {"success": True, "message": "删除成功"}
 
 
 # @router.get("") 定义一个 GET 请求的端点

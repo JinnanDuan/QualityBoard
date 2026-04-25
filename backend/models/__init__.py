@@ -9,6 +9,7 @@ from backend.models.case_failed_type import CaseFailedType
 from backend.models.case_offline_type import CaseOfflineType
 from backend.models.sys_audit_log import SysAuditLog
 from backend.models.report_snapshot import ReportSnapshot
+from backend.models.history_search_template import HistorySearchTemplate
 
 __all__ = [
     "Base",
@@ -22,4 +23,5 @@ __all__ = [
     "CaseOfflineType",
     "SysAuditLog",
     "ReportSnapshot",
+    "HistorySearchTemplate",
 ]
