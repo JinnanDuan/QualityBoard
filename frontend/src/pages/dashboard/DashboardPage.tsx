@@ -20,6 +20,12 @@ const appFontFamily =
 const donutPassColor = "#a8b9ee";
 const donutFailColor = "#4a5a9a";
 
+/**
+ * Renders a styled status tag or placeholder for a batch result string.
+ *
+ * @param result - The batch result text to display; may be null or undefined.
+ * @returns A React element: a colored Tag indicating "fail" (error color), "pass" (success color), or "processing" for other values, or a bold dash when the input is empty.
+ */
 function renderBatchResultTag(result: string | null | undefined) {
   const label = (result || "").trim();
   if (!label) {
@@ -42,6 +48,12 @@ function renderBatchResultTag(result: string | null | undefined) {
   );
 }
 
+/**
+ * Build an ECharts option for visualizing batch trends as two smoothed line series.
+ *
+ * @param items - Array of batch trend entries; each element is used in order for x-axis categories and series data points.
+ * @returns An ECharts option object that renders two line series labeled "失败用例数" (failed cases) and "总用例数" (total cases), with axis, tooltip, legend, grid, and area styling configured for trend visualization.
+ */
 function buildChartOption(items: BatchTrendItem[]) {
   return {
     tooltip: {
@@ -125,6 +137,14 @@ function buildChartOption(items: BatchTrendItem[]) {
   };
 }
 
+/**
+ * Builds an ECharts option for a donut chart that visualizes pass vs. fail composition for a batch.
+ *
+ * @param passed - Number of passed cases in the batch.
+ * @param failed - Number of failed cases in the batch.
+ * @param totalCaseNum - Reported total case count to display at chart center; if not a number or negative, the displayed total falls back to `passed + failed`.
+ * @returns An ECharts option object for a donut (pie) chart. If `passed + failed` is zero the option contains only centered total text and an empty-data title; otherwise it includes tooltip, legend, colored slices for "通过" and "失败", and a centered total graphic.
+ */
 function buildDonutOption(passed: number, failed: number, totalCaseNum: number) {
   const sum = passed + failed;
   const centerTotal =
@@ -217,6 +237,14 @@ function buildDonutOption(passed: number, failed: number, totalCaseNum: number) 
   };
 }
 
+/**
+ * Render the dashboard page showing the latest batch donut and branch trend charts.
+ *
+ * Fetches latest batch data and recent batch trends for "master" and "bugfix", displays loading and empty states,
+ * and navigates to the history view when a batch card or a chart point is clicked.
+ *
+ * @returns The React element for the dashboard page containing the latest-batch summary and branch trend charts.
+ */
 export default function DashboardPage() {
   const navigate = useNavigate();
   const [latestBatch, setLatestBatch] = useState<LatestBatchItem | null | undefined>(undefined);
