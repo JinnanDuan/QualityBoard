@@ -5,6 +5,7 @@ import {
   DashboardOutlined,
   UnorderedListOutlined,
   HistoryOutlined,
+  SafetyCertificateOutlined,
   FileTextOutlined,
   FileSearchOutlined,
   UserOutlined,
@@ -23,6 +24,7 @@ const allMenuItems: MenuProps["items"] = [
   { key: "/", icon: <DashboardOutlined />, label: "首页大盘" },
   { key: "/overview", icon: <UnorderedListOutlined />, label: "分组执行历史" },
   { key: "/history", icon: <HistoryOutlined />, label: "详细执行历史" },
+  { key: "/ut-gate-history", icon: <SafetyCertificateOutlined />, label: "UT门禁历史" },
   { key: "/cases", icon: <FileTextOutlined />, label: "用例管理" },
   { key: "/report", icon: <FileSearchOutlined />, label: "总结报告" },
   {

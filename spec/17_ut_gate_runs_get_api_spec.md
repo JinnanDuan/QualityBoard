@@ -2,7 +2,7 @@
 
 本文档为 **`GET /api/v1/ut-gate-runs`** 的**实现级**规约，供后端与「UT门禁历史」前端联调对照。上位需求见 **`spec/15_ut_gate_jenkins_report_spec.md`**（§6.2、§8）；表结构与字段含义见 **§5** 及 **`database/V1.1.2__create_ut_gate_run.sql`**；单条记录 JSON 形状与 **`spec/16_ut_gate_report_post_api_spec.md` §6** 的 **`UtGateRunItem`** 对齐。
 
-**本文档范围**：**分页列表** `GET /api/v1/ut-gate-runs`。**不包含** `GET /api/v1/ut-gate-runs/stats`（见 **§11**）；**不包含** Jenkins `POST`（见 **`spec/16_ut_gate_report_post_api_spec.md`**）。
+**本文档范围**：**分页列表** `GET /api/v1/ut-gate-runs`。**不包含** `GET /api/v1/ut-gate-runs/stats`（见 **§11**）；**不包含** Jenkins `POST`（见 **`spec/16_ut_gate_report_post_api_spec.md`**）。**浏览器列表页**实现见 **`spec/18_ut_gate_history_frontend_spec.md`**。
 
 ---
 
@@ -171,3 +171,4 @@
 |------|------|------|
 | v1.0 | 2026-05-07 | 初稿：`GET` 列表、鉴权、筛选、排序、分页、`stats` 非必做说明 |
 | v1.1 | 2026-05-07 | 后端已按 §12 实现列表接口；§12 勾选同步 |
+| v1.2 | 2026-05-07 | 文首补充 **`spec/18`** 浏览器列表页引用 |
