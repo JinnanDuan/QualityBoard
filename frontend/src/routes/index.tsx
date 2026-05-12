@@ -6,6 +6,7 @@ import DashboardPage from "../pages/dashboard/DashboardPage";
 import OverviewPage from "../pages/overview/OverviewPage";
 import HistoryPage from "../pages/history/HistoryPage";
 import CaseExecutionsHistoryPage from "../pages/history/CaseExecutionsHistoryPage";
+import UtGateHistoryPage from "../pages/ut-gate-history/UtGateHistoryPage";
 import CasesPage from "../pages/cases/CasesPage";
 import ReportPage from "../pages/report/ReportPage";
 import UsersPage from "../pages/admin/UsersPage";
@@ -55,6 +56,7 @@ export default function AppRoutes() {
         },
         { path: "history", element: <HistoryPage /> },
         { path: "history/case-executions", element: <CaseExecutionsHistoryPage /> },
+        { path: "ut-gate-history", element: <UtGateHistoryPage /> },
         {
           path: "cases",
           element: (

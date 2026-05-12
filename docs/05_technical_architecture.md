@@ -237,7 +237,7 @@ pipeline_cases             case_offline_type        sys_audit_log (新增)
 | Epic 1 | 数据看板 | `/api/v1/dashboard` | DashboardPage | pipeline_overview |
 | Epic 1 | 分组概览 | `/api/v1/overview` | OverviewPage | pipeline_overview |
 | Epic 1 | 执行明细 | `/api/v1/history` | HistoryPage | pipeline_history |
-| Epic 1 | UT 门禁上报 | `POST` / **`GET`** `/api/v1/ut-gate-runs`（列表页见 Story 规划） | （「UT门禁历史」页面对接 `GET`） | ut_gate_run |
+| Epic 1 | UT 门禁上报 | `POST` / **`GET`** `/api/v1/ut-gate-runs` | **`UtGateHistoryPage`**（路由 **`/ut-gate-history`**，`spec/18`） | ut_gate_run |
 | Epic 2 | 失败分析 | `/api/v1/analysis` | (HistoryPage 内交互) | pipeline_failure_reason |
 | Epic 3 | 总结报告 | `/api/v1/report` | ReportPage | report_snapshot |
 | Epic 4 | 消息通知 | `/api/v1/notification` | NotificationPage | WeLink API |

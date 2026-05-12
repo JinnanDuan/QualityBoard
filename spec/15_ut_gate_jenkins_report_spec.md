@@ -277,7 +277,7 @@
 
 - **菜单位置**：与 **「详细执行历史」**（现有 `/history` 所在主导航层级）**同级**，新增一项，菜单文案：**「UT门禁历史」**。  
 - **路由**：建议 **`/ut-gate-history`**（与 **`/history`** 并列顶层路径；实现时若需微调须保持「与详细执行历史同级」语义，并在路由表中登记）。  
-- **页面内容**：**仅** Ant Design **`<Table>`** + 筛选条件 + 分页，对接 **`GET /api/v1/ut-gate-runs`**；行内可链 **`build_url`** / **`mr_url`** 跳转 Jenkins / CodeHub。**本期页面不引入 ECharts**。  
+- **页面内容**：**仅** Ant Design **`<Table>`** + 筛选条件 + 分页，对接 **`GET /api/v1/ut-gate-runs`**；行内可链 **`build_url`** / **`mr_url`** 跳转 Jenkins / CodeHub。**本期页面不引入 ECharts**。**前端实现级规约**见 **`spec/18_ut_gate_history_frontend_spec.md`**。  
 - **首页**：**不**增加 UT 门禁图表或专用卡片；用户经 **「UT门禁历史」** 菜单进入列表即可。
 
 ### 8.4 核心指标：按 MR 去重（不依赖是否合入）
@@ -324,7 +324,7 @@
 - [x] **`GET /api/v1/ut-gate-runs`** 分页列表：见 **`spec/17_ut_gate_runs_get_api_spec.md`**  
 - [ ] Jenkins 侧：Credentials、`curl` 示例、`tee` + `PIPESTATUS` 试点；**`codehubMergeRequestUrl` → `mr_url`**（§5.2.1 **B 类**）按规约接入  
 - [ ] 联调：幂等、超时（`curl --max-time`）、DNS  
-- [ ] 前端：**「UT门禁历史」**菜单（与详细执行历史同级）+ 路由 **`/ut-gate-history`** + 列表页（**无图表**）；**全员可见**（已登录用户）；`utGateApi` 服务封装  
+- [x] 前端：**「UT门禁历史」**菜单（与详细执行历史同级）+ 路由 **`/ut-gate-history`** + 列表页（**无图表**）；**全员可见**（已登录用户）；`utGateApi` 服务封装（**细则见 `spec/18_ut_gate_history_frontend_spec.md`**，**§10 已实现**）  
 - [ ] 更新 `docs/` 中架构/接口说明（若有对外部署）
 
 ---
@@ -346,7 +346,7 @@
 | **1. 数据层** | `database/V*.*.*__create_ut_gate_run.sql`；`UtGateRun`（或等价命名）ORM；字段与本文 **§5** 一致；**禁止** `create_all` | 迁移在目标环境执行成功 |
 | **2. 上报 API** | 请求 Schema、Service（含 **`idempotency_key` 幂等**）、`POST` 路由；**集成 Bearer** 校验；日志符合 `docs/06_logging_guide.md` | 同 key 重复上报不产生重复行；未授权/参数错误返回 4xx |
 | **3. 查询 API** | 列表 Query Schema、`select` 分页与计数、`GET` + `PageResponse` | 与项目内其它列表接口行为一致 |
-| **4. 前端** | `frontend/src/services` 下 **`utGateApi`**（字段 **snake_case** 与后端一致）；路由 **`/ut-gate-history`**；**「UT门禁历史」**菜单（全员可见，见 §6.2、§9）；列表页，**本期无图表** | 已登录用户可访问列表与分页 |
+| **4. 前端** | `frontend/src/services` 下 **`utGateApi`**（字段 **snake_case** 与后端一致）；路由 **`/ut-gate-history`**；**「UT门禁历史」**菜单（全员可见，见 §6.2、§9）；列表页，**本期无图表** | 已登录用户可访问列表与分页；**实现见 `spec/18_ut_gate_history_frontend_spec.md` §10（v1.1）** |
 | **5. Jenkins 侧** | Credentials、**`curl --max-time`**、**`tee` + `PIPESTATUS`**（或等价）；**`codehubMergeRequestUrl` → `mr_url`**（§5.2.1 **B 类**） | 试点 Job 端到端产生一条符合预期的库记录 |
 
 **文档**：`docs/` 中架构/接口说明在**功能对外可用**的版本与代码同步更新即可，无需每个小改动都改文档。
@@ -392,3 +392,5 @@
 | v1.5 | 2026-05-07 | §6.1：POST 细则引用 **`spec/16_ut_gate_report_post_api_spec.md`**；幂等行为与 §16 对齐 |
 | v1.6 | 2026-05-07 | 新增 **`spec/17_ut_gate_runs_get_api_spec.md`**（GET 列表）；§6.2 认证分场景（POST 集成 Token / GET 用户 JWT）、筛选与 stats 说明对齐 §17 |
 | v1.7 | 2026-05-07 | §11：`GET` 列表检查项已落地；与 **`spec/17` v1.1** 同步 |
+| v1.8 | 2026-05-07 | §8.3、§11、§12.2：**前端**细则引用 **`spec/18_ut_gate_history_frontend_spec.md`** |
+| v1.9 | 2026-05-07 | §11：前端项注明 **`spec/18` §10** 已落地代码；部署侧仍需 `pnpm build` |

@@ -452,3 +452,6 @@ export const overviewApi = {
     return request.get("/overview/options") as any;
   },
 };
+
+export { utGateApi } from "./utGate";
+export type { UtGateRunItem, UtGateRunListParams } from "./utGate";
