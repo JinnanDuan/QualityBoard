@@ -224,6 +224,7 @@ pipeline_cases             case_offline_type        sys_audit_log (新增)
 | case_offline_type | 全表 | 全字段 CRUD | 管理员操作 |
 | sys_audit_log | 全表 | INSERT only | 系统自动写入 |
 | report_snapshot | 全表 | INSERT / SELECT | 管理员生成报告时写入 |
+| ut_gate_run | 全表 | INSERT（幂等） | Jenkins 经 `POST /api/v1/ut-gate-runs` 写入，鉴权为 `UT_GATE_INTEGRATION_TOKEN`（见 `spec/16_ut_gate_report_post_api_spec.md`） |
 
 ---
 
@@ -236,6 +237,7 @@ pipeline_cases             case_offline_type        sys_audit_log (新增)
 | Epic 1 | 数据看板 | `/api/v1/dashboard` | DashboardPage | pipeline_overview |
 | Epic 1 | 分组概览 | `/api/v1/overview` | OverviewPage | pipeline_overview |
 | Epic 1 | 执行明细 | `/api/v1/history` | HistoryPage | pipeline_history |
+| Epic 1 | UT 门禁上报 | `POST /api/v1/ut-gate-runs`（列表页见 Story 规划） | （「UT门禁历史」页面对接 `GET` 待实现） | ut_gate_run |
 | Epic 2 | 失败分析 | `/api/v1/analysis` | (HistoryPage 内交互) | pipeline_failure_reason |
 | Epic 3 | 总结报告 | `/api/v1/report` | ReportPage | report_snapshot |
 | Epic 4 | 消息通知 | `/api/v1/notification` | NotificationPage | WeLink API |
@@ -274,6 +276,7 @@ pipeline_cases             case_offline_type        sys_audit_log (新增)
 - 认证方式：JWT (HS256)，token 有效期 8 小时
 - 角色判定：token 中的 `sub`（员工工号）是否在 `ADMIN_EMPLOYEE_IDS` 列表中
 - 权限校验：后端 `Depends(require_admin)` 拦截管理员接口
+- **Jenkins UT 门禁上报**：`POST /api/v1/ut-gate-runs` 使用 **`Authorization: Bearer`** 与配置项 **`UT_GATE_INTEGRATION_TOKEN`** 校验，**不**使用用户 JWT；规约见 `spec/16_ut_gate_report_post_api_spec.md`
 
 ---
 

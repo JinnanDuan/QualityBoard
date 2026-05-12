@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from backend.api.v1 import auth, dashboard, overview, history, analysis, cases, report, notification, admin
+from backend.api.v1 import auth, dashboard, overview, history, analysis, cases, report, notification, admin, ut_gate_run
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -13,3 +13,4 @@ api_router.include_router(cases.router)
 api_router.include_router(report.router)
 api_router.include_router(notification.router)
 api_router.include_router(admin.router)
+api_router.include_router(ut_gate_run.router)
