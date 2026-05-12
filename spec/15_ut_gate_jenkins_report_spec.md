@@ -211,14 +211,16 @@
 
 ### 6.2 查询：列表与聚合（看板）
 
-**认证**：与 **§6.1** 相同——**`Authorization: Bearer <固定集成Token>`**（**同一**或**独立第二枚** Token 由运维约定；独立时写入/查询权限可拆分）。**本期不采用** HMAC、**不单独**依赖用户 Cookie 作为 UT 门禁 GET 鉴权。  
-**看板前端**：**不得**把集成 Token 写进浏览器脚本；由 **QualityBoard 后端**（已走现有用户登录态）**服务端代调** GET，或使用内网仅可达的 BFF。**本期**以内网 + 固定 Token 为最简单闭环。  
-**「UT门禁历史」权限（已确认）**：**全员可见**——凡**已登录**本系统的用户均可访问该菜单及列表数据（不因角色隐藏）；仍依赖应用整体登录与内网部署；后端代调 UT 列表接口时使用集成 Token。
+**列表 GET 实现细则**（查询参数、时间语义、`reported_at` 筛选、`mr_url`/`job_name` 匹配、分页、权限）见 **`spec/17_ut_gate_runs_get_api_spec.md`**。
+
+**认证（分场景）**：**Jenkins → `POST`** 使用 **`Authorization: Bearer <固定集成Token>`**（见 §6.1、**`spec/16`**）。**浏览器 → `GET` 列表** 使用 **用户登录态（JWT）**，**不得**在浏览器持有集成 Token；细则见 **`spec/17` §3**。**本期不采用** HMAC。  
+**看板前端**：列表数据经 **`GET /api/v1/ut-gate-runs`** 由已登录前端调用后端，后端直读库；与主 spec 原「服务端代调」表述等价（**不**经浏览器携带集成 Token）。  
+**「UT门禁历史」权限（已确认）**：**全员可见**——凡**已登录**本系统的用户均可访问该菜单及列表数据（不因角色隐藏）；仍依赖应用整体登录与内网部署。
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| `/api/v1/ut-gate-runs` | GET | 分页列表；筛选：`start_time`, `end_time`, `is_intercepted`, `mr_url`（精确或前缀，**待实现约定**）, `job_name` |
-| `/api/v1/ut-gate-runs/stats` | GET | 聚合：按日/周 **`is_intercepted=true` 次数**、**`false` 次数**（`false` 为混合口径）；可选 **按 `job_name`** 分布（参数：`granularity`, `start_time`, `end_time`）；**本期不按仓库 URL / commit / MR 分支** 维度存库（无 `git_remote_url`、`git_commit_sha`、`source_branch`/`target_branch`） |
+| `/api/v1/ut-gate-runs` | GET | 分页列表；筛选与排序见 **`spec/17_ut_gate_runs_get_api_spec.md` §4～§5**（`start_time`/`end_time` 绑定 **`reported_at`**；`is_intercepted`；`mr_url` 精确与 `mr_url_contains` 子串互斥；`job_name_contains`） |
+| `/api/v1/ut-gate-runs/stats` | GET | 聚合：按日/周 **`is_intercepted=true` 次数**、**`false` 次数**（`false` 为混合口径）；可选 **按 `job_name`** 分布（参数：`granularity`, `start_time`, `end_time`）；**本期不按仓库 URL / commit / MR 分支** 维度存库（无 `git_remote_url`、`git_commit_sha`、`source_branch`/`target_branch`）；**stats 首期可不实现**，见 **`spec/17` §11** 与 §8.2 |
 
 ### 6.3 异常与错误码
 
@@ -319,6 +321,7 @@
 **推荐实现顺序**见 **§12**（分阶段计划与 PR 切分）。
 
 - [ ] 新增 `database/V*.*.*__create_ut_gate_run.sql` 与 ORM/Schema/Service/API  
+- [x] **`GET /api/v1/ut-gate-runs`** 分页列表：见 **`spec/17_ut_gate_runs_get_api_spec.md`**  
 - [ ] Jenkins 侧：Credentials、`curl` 示例、`tee` + `PIPESTATUS` 试点；**`codehubMergeRequestUrl` → `mr_url`**（§5.2.1 **B 类**）按规约接入  
 - [ ] 联调：幂等、超时（`curl --max-time`）、DNS  
 - [ ] 前端：**「UT门禁历史」**菜单（与详细执行历史同级）+ 路由 **`/ut-gate-history`** + 列表页（**无图表**）；**全员可见**（已登录用户）；`utGateApi` 服务封装  
@@ -387,3 +390,5 @@
 | v1.3.1 | 2026-05-07 | **R5**、表字段 `jenkins_base_url` 与 §5.2.1 对齐（不引用外部「CI 契约」）；§11 前端项补充 **全员可见** |
 | v1.4 | 2026-05-07 | 新增 **§12 分阶段实现计划**（阶段表、验收、PR 切分、非单独模块说明）；§11 增加对 §12 的引用 |
 | v1.5 | 2026-05-07 | §6.1：POST 细则引用 **`spec/16_ut_gate_report_post_api_spec.md`**；幂等行为与 §16 对齐 |
+| v1.6 | 2026-05-07 | 新增 **`spec/17_ut_gate_runs_get_api_spec.md`**（GET 列表）；§6.2 认证分场景（POST 集成 Token / GET 用户 JWT）、筛选与 stats 说明对齐 §17 |
+| v1.7 | 2026-05-07 | §11：`GET` 列表检查项已落地；与 **`spec/17` v1.1** 同步 |

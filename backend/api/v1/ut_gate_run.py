@@ -5,13 +5,34 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.database import get_db
-from backend.core.dependencies import verify_ut_gate_integration_token
-from backend.schemas.ut_gate_run import UtGateRunCreate, UtGateRunItem
-from backend.services.ut_gate_run_service import UtGateIdempotencyConflict, create_ut_gate_run
+from backend.core.dependencies import get_current_user, verify_ut_gate_integration_token
+from backend.schemas.common import PageResponse
+from backend.schemas.ut_gate_run import UtGateRunCreate, UtGateRunItem, UtGateRunQuery
+from backend.services.ut_gate_run_service import UtGateIdempotencyConflict, create_ut_gate_run, list_ut_gate_runs
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ut-gate-runs", tags=["UT门禁上报"])
+
+
+@router.get(
+    "",
+    response_model=PageResponse[UtGateRunItem],
+    summary="分页查询 UT 门禁上报记录",
+    description="筛选 `reported_at` 使用 `start_time`/`end_time`（与 History 批次 `start_time` 无关）。规约见 `spec/17_ut_gate_runs_get_api_spec.md`。",
+)
+async def get_ut_gate_runs(
+    query: UtGateRunQuery = Depends(),
+    db: AsyncSession = Depends(get_db),
+    _payload: dict = Depends(get_current_user),
+):
+    rows, total = await list_ut_gate_runs(db, query)
+    return PageResponse(
+        items=[UtGateRunItem.model_validate(r) for r in rows],
+        total=total,
+        page=query.page,
+        page_size=query.page_size,
+    )
 
 
 @router.post(

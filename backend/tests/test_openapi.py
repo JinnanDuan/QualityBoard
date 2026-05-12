@@ -14,4 +14,6 @@ async def test_openapi_json_available():
     assert body.get("openapi") is not None
     assert "paths" in body
     assert "/api/v1/ut-gate-runs" in body["paths"]
-    assert "post" in body["paths"]["/api/v1/ut-gate-runs"]
+    ut_paths = body["paths"]["/api/v1/ut-gate-runs"]
+    assert "post" in ut_paths
+    assert "get" in ut_paths
