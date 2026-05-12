@@ -27,6 +27,7 @@ TABLE_DDL_MAP = {
     "case_offline_type": "V1.0.8__create_case_offline_type.sql",
     "sys_audit_log": "V1.0.9__create_sys_audit_log.sql",
     "report_snapshot": "V1.1.0__create_report_snapshot.sql",
+    "ut_gate_run": "V1.1.2__create_ut_gate_run.sql",
 }
 
 TABLE_RE = re.compile(r"CREATE\s+TABLE\s+`([^`]+)`\s*\(", re.IGNORECASE)

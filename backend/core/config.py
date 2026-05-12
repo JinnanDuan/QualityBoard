@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # dt-report -> AIFA 单次调用超时（秒）
     AI_ANALYZE_TIMEOUT_SECONDS: int = 180
 
+    # UT 门禁 Jenkins 上报：固定集成 Token（Authorization: Bearer），与 Jenkins Credentials 一致；空则拒绝上报（401）
+    UT_GATE_INTEGRATION_TOKEN: str = ""
+
     # LDAP 域登录（LDAP_HOST 留空则使用 MVP 密码模式）
     LDAP_HOST: str = ""
     LDAP_PORT: int = 389
