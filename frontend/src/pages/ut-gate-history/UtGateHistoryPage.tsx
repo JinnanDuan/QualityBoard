@@ -39,6 +39,9 @@ function formatDt(s: string | null | undefined): string {
   return d.isValid() ? d.format("YYYY-MM-DD HH:mm:ss") : s;
 }
 
+/** 与 Ant Design RangePicker value/onChange 一致（两端可为 null） */
+type UtGateDateRange = [Dayjs | null, Dayjs | null] | null;
+
 export default function UtGateHistoryPage() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<PageResponse<UtGateRunItem>>({
@@ -50,7 +53,7 @@ export default function UtGateHistoryPage() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
+  const [dateRange, setDateRange] = useState<UtGateDateRange>(null);
   const [interceptFilter, setInterceptFilter] = useState<"all" | "yes" | "no">("all");
   const [mrUrlExact, setMrUrlExact] = useState("");
   const [mrUrlContains, setMrUrlContains] = useState("");
