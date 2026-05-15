@@ -174,7 +174,7 @@
 | 索引 | 字段 | 用途 |
 |------|------|------|
 | `idx_created_at` | `created_at` | 时间范围筛选、列表排序；**二期**若做趋势统计可复用 |
-| `idx_mr_url_created` | `mr_url`, `created_at` | 按 MR 链接聚合、列表筛选（`mr_url` 可空时索引仍可用，查询注意 IS NOT NULL） |
+| `idx_mr_url_created` | `mr_url`(191), `created_at` | 按 MR 链接聚合、列表筛选；**`mr_url` 为前缀索引**（MySQL 5.7 utf8mb4 单索引字节上限 3072，全列 `VARCHAR(1024)` 会报 ERROR 1071） |
 | `idx_is_intercepted_created` | `is_intercepted`, `created_at` | 列表按拦截状态筛选；**二期**若做分布/趋势可复用 |
 | `idx_job_build` | `job_name`, `build_number` | 对账、去重辅助 |
 
@@ -394,3 +394,4 @@
 | v1.7 | 2026-05-07 | §11：`GET` 列表检查项已落地；与 **`spec/17` v1.1** 同步 |
 | v1.8 | 2026-05-07 | §8.3、§11、§12.2：**前端**细则引用 **`spec/18_ut_gate_history_frontend_spec.md`** |
 | v1.9 | 2026-05-07 | §11：前端项注明 **`spec/18` §10** 已落地代码；部署侧仍需 `pnpm build` |
+| v1.10 | 2026-05-12 | §5.3、`V1.1.2` DDL：**`idx_mr_url_created`** 改为 **`mr_url`(191)** 前缀索引，避免 MySQL 5.7 utf8mb4 **ERROR 1071** |

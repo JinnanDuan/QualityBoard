@@ -15,7 +15,7 @@ class UtGateRun(Base):
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uk_idempotency"),
         Index("idx_created_at", "created_at"),
-        Index("idx_mr_url_created", "mr_url", "created_at"),
+        Index("idx_mr_url_created", "mr_url", "created_at", mysql_length={"mr_url": 191}),
         Index("idx_is_intercepted_created", "is_intercepted", "created_at"),
         Index("idx_job_build", "job_name", "build_number"),
         {"extend_existing": True},
