@@ -17,7 +17,8 @@ CREATE TABLE `ut_gate_run` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_idempotency` (`idempotency_key`),
   KEY `idx_created_at` (`created_at`),
-  KEY `idx_mr_url_created` (`mr_url`, `created_at`),
+  -- mr_url 为 VARCHAR(1024)，utf8mb4 全列索引超过 767/3072 字节限制，须使用前缀索引（与 ORM mysql_length 一致）
+  KEY `idx_mr_url_created` (`mr_url`(191), `created_at`),
   KEY `idx_is_intercepted_created` (`is_intercepted`, `created_at`),
   KEY `idx_job_build` (`job_name`, `build_number`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
