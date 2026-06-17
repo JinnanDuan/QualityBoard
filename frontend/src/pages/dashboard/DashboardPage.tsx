@@ -9,6 +9,15 @@ import {
   type LatestBatchItem,
 } from "../../services";
 
+const FAILED_CASE_RESULTS = ["failed", "error"] as const;
+
+function buildHistoryHref(batch: string, caseResults?: readonly string[]): string {
+  const q = new URLSearchParams();
+  q.append("start_time", batch);
+  caseResults?.forEach((r) => q.append("case_result", r));
+  return `/history?${q.toString()}`;
+}
+
 function buildChartOption(items: BatchTrendItem[]) {
   return {
     tooltip: {
@@ -123,15 +132,24 @@ export default function DashboardPage() {
   }, []);
 
   const handleCardClick = (batch: string) => {
-    navigate(`/history?start_time=${encodeURIComponent(batch)}`);
+    navigate(buildHistoryHref(batch));
   };
 
-  const createChartClickHandler = (items: BatchTrendItem[]) => (params: { dataIndex: number }) => {
-    const item = items[params.dataIndex];
-    if (item?.batch) {
-      navigate(`/history?start_time=${encodeURIComponent(item.batch)}`);
-    }
-  };
+  const createChartClickHandler =
+    (items: BatchTrendItem[]) =>
+    (params: { dataIndex?: number; seriesName?: string }) => {
+      const idx = params.dataIndex;
+      if (idx == null || idx < 0) return;
+      const item = items[idx];
+      if (!item?.batch) return;
+      const isFailedSeries = params.seriesName === "失败用例数";
+      navigate(
+        buildHistoryHref(
+          item.batch,
+          isFailedSeries ? FAILED_CASE_RESULTS : undefined,
+        ),
+      );
+    };
 
   const hasLatestBatch = latestBatch && Object.keys(latestBatch).length > 0;
 

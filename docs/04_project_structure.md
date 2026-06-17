@@ -223,7 +223,7 @@ Schema 定义 API 的请求参数格式和响应 JSON 格式，由 FastAPI 自�
 | `history/HistoryPage.tsx` | 详细执行历史页面。Table 展示 pipeline_history 数据（含跟踪人、失败原因列），支持分页与多维度筛选（字符串维度下拉可搜索；有匹配候选项且搜索非空时首行「全部」应用子串筛选，与 URL `*_contains` 同步；`allowClear` 清除该维度 IN 与子串），Drawer 含基本信息区、失败归因区（仅 failed 时展示）、外部链接区；用例名链至钻取页；工具栏含分析处理、继承、一键分析、**一键通知**（spec/13）、一键生成通报、**日报数据**（`GET /history/oh-daily-export`，批次子串搜索弹窗 + TSV 复制）；**搜索模板**：「保存模板」在「日报数据」之后，仅「筛选确认」后可保存（`historyApi` 调 `GET/POST/DELETE /history/search-templates`，每用户最多 10 条，交互与校验见 `docs/02_prd.md` Story 1.3）；模板条展示于通报按钮同区域后部，点击应用查询、× 删除确认，删除当前所用模板时不改 URL；钻取模式应用模板时保留用例/平台/分支锚定。“已分析”列新增行级「分析」按钮，点击后复用与工具栏「分析处理」相同的弹窗与提交流程；**分析处理**弹窗在失败类型为 bug 时跟踪人为可编辑输入，默认按模块带出「姓名 工号」（spec/04）；「详细原因」为多行 `Input.TextArea`，有本地缓存时上方提供可搜索 `Select`（`localStorage`）一键写入历史文案；失败标注 Modal 宽度约 580px、`body` 设 `maxHeight`+纵向滚动，避免内容与页脚重叠。布局：主内容区内占满剩余高度，筛选区与表头、分页固定，**仅表体区域纵向滚动**（`ResizeObserver` + `scroll.y`）；样式见 `history-table.css` | ✅ 已实现 |
 | `history/HistoryStringMultiFilter.tsx` | 历史页字符串多选筛选项：搜索、`dropdownRender` 内「全部」（不展示数量）、子串条件以灰色 `Tag` 与多选同框展示（`history-table.css`）、隐藏 `*_contains` 与 `Select` 的 Form 联动 | ✅ 已实现 |
 | `history/CaseExecutionsHistoryPage.tsx` | 用例执行历史钻取壳组件，渲染 `HistoryPage drilldown`（`/history/case-executions`），规约 spec/12 | ✅ 已实现 |
-| `dashboard/DashboardPage.tsx` | 首页大盘 | 🔲 占位 |
+| `dashboard/DashboardPage.tsx` | 首页大盘：最新批次统计卡片（点击跳转 History 带 `start_time`）；master / bugfix 双趋势折线图（ECharts）；点击「失败用例数」折线点跳转 History 并预填 `case_result=failed&error`，点击「总用例数」折线点仅带 `start_time`（见 spec/09 §3.7） | ✅ 已实现 |
 | `overview/OverviewPage.tsx` | 分组执行历史 | 🔲 占位 |
 | `cases/CasesPage.tsx` | 用例管理 | 🔲 占位 |
 | `report/ReportPage.tsx` | 总结报告 | 🔲 占位 |
