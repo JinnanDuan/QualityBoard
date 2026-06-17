@@ -48,6 +48,10 @@
 |--------|----------|
 | log_url | 可点击链接（新窗口打开），无值则显示「暂无」 |
 | pipeline_url | 可点击链接（新窗口打开），无值则显示「暂无」 |
+| test_code_repo_url | 可点击链接；值来自环境变量 `TEST_CODE_REPO_URL`，未配置则「暂无」 |
+| package_url（取包地址） | 由当前行 `code_branch`、`start_time`、`platform` 与 `.env` 中 `PACKAGE_INIT_URL`、`PACKAGE_NAME_MAC`、`PACKAGE_NAME_OH` 拼接；`platform` 忽略大小写，仅支持 `mac` / `oh`；不支持的平台显示「未知平台」；配置或行字段缺失则「暂无」 |
+
+**说明：** 测试代码仓与取包模板通过 `GET /api/v1/app/frontend-config` 下发（需登录），详见部署文档。
 
 **说明：** API 响应字段 `owner` 在 Drawer 基本信息区展示为「用例开发责任人」，值为按 `main_module` 与 `ums_module_owner.module` 关联解析后的「姓名+工号」展示串；**模块匹配按小写等价**（`LOWER(main_module)` 与 `LOWER(module)`），避免流水线写入大小写不一致导致无负责人。`owner_history` 本次实现不考虑。
 
@@ -90,5 +94,7 @@
 | reports_url | ✓ | ✓ 基本信息（链接） | — |
 | log_url | — | ✓ 外部链接 | — |
 | pipeline_url | — | ✓ 外部链接 | — |
+| test_code_repo_url | — | ✓ 外部链接（配置） | — |
+| package_url | — | ✓ 外部链接（拼接） | — |
 | owner_history | — | — | — |
 | id / created_at / updated_at | — | — | — |

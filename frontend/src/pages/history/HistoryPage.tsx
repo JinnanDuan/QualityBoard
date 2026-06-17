@@ -40,7 +40,10 @@ import {
   type InheritSourceRecordItem,
   type BatchReportResponse,
   type HistorySearchTemplateItem,
+  appApi,
+  type FrontendConfig,
 } from "../../services";
+import { resolvePackageUrl } from "../../utils/packageUrl";
 import AIFailureAnalysisTab from "./components/ai_analysis/AIFailureAnalysisTab";
 
 const { Text, Title, Paragraph } = Typography;
@@ -139,6 +142,28 @@ function UrlLink({
         {label}
       </a>
     );
+  }
+  return <Text type="secondary">暂无</Text>;
+}
+
+function PackageUrlLink({
+  config,
+  record,
+}: {
+  config: FrontendConfig | null;
+  record: HistoryItem;
+}) {
+  const resolved = resolvePackageUrl(
+    config,
+    record.code_branch,
+    record.start_time,
+    record.platform,
+  );
+  if (resolved.kind === "url") {
+    return <UrlLink url={resolved.url} label="打开链接" />;
+  }
+  if (resolved.kind === "unknown_platform") {
+    return <Text type="secondary">未知平台</Text>;
   }
   return <Text type="secondary">暂无</Text>;
 }
@@ -269,6 +294,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const [loading, setLoading] = useState(false);
   const [options, setOptions] = useState<HistoryFilterOptions | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(false);
+  const [frontendConfig, setFrontendConfig] = useState<FrontendConfig | null>(null);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [drawerRecord, setDrawerRecord] = useState<HistoryItem | null>(null);
   const [drawerFailureTabKey, setDrawerFailureTabKey] = useState("failure");
@@ -464,8 +490,18 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
     }
   };
 
+  const fetchFrontendConfig = async () => {
+    try {
+      const cfg = await appApi.frontendConfig();
+      setFrontendConfig(cfg);
+    } catch {
+      setFrontendConfig(null);
+    }
+  };
+
   useEffect(() => {
     fetchOptions();
+    void fetchFrontendConfig();
   }, []);
 
   const loadSearchTemplates = useCallback(async () => {
@@ -2597,9 +2633,17 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
                 <Text strong>日志：</Text>
                 <UrlLink url={drawerRecord.log_url} label="打开链接" />
               </div>
-              <div>
+              <div style={{ marginBottom: 8 }}>
                 <Text strong>流水线：</Text>
                 <UrlLink url={drawerRecord.pipeline_url} label="打开链接" />
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <Text strong>测试代码仓：</Text>
+                <UrlLink url={frontendConfig?.test_code_repo_url} label="打开链接" />
+              </div>
+              <div>
+                <Text strong>取包地址：</Text>
+                <PackageUrlLink config={frontendConfig} record={drawerRecord} />
               </div>
             </div>
           </>

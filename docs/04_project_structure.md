@@ -41,7 +41,7 @@ dt-report/
 
 | 文件 | 说明 |
 |------|------|
-| `config.py` | 全局配置。使用 Pydantic `BaseSettings` 从 `.env` 文件读取 `DATABASE_URL`、`SECRET_KEY`、`ADMIN_EMPLOYEE_IDS`、WeLink API 配置、`WELINK_CARD_INI_PATH`（WeLink 卡片 INI 路径）、`PUBLIC_APP_URL`（一键通知卡片内绝对链接根地址）、日志配置（ENV、LOG_LEVEL、LOG_DIR 等） |
+| `config.py` | 全局配置。使用 Pydantic `BaseSettings` 从 `.env` 文件读取 `DATABASE_URL`、`SECRET_KEY`、`ADMIN_EMPLOYEE_IDS`、WeLink API 配置、`WELINK_CARD_INI_PATH`（WeLink 卡片 INI 路径）、`PUBLIC_APP_URL`（一键通知卡片内绝对链接根地址）、`TEST_CODE_REPO_URL` / `PACKAGE_INIT_URL` / `PACKAGE_NAME_MAC` / `PACKAGE_NAME_OH`（详细执行历史 Drawer 外部链接）、日志配置（ENV、LOG_LEVEL、LOG_DIR 等） |
 | `dashboard_defaults.py` | 首页看板代码内默认策略（非环境变量）：如是否按 `pipeline_overview.batch` 前缀过滤轮次；后续可迁到 `Settings` / `.env` |
 | `database.py` | 数据库连接层。创建 SQLAlchemy 异步引擎（`create_async_engine`）和会话工厂（`async_sessionmaker`），提供 `get_db()` 异步生成器用于 FastAPI 依赖注入 |
 | `security.py` | 认证鉴权工具。JWT Token 的生成（`create_access_token`）与验证（`verify_token`），管理员权限校验依赖项（`require_admin`） |
@@ -118,6 +118,7 @@ Schema 定义 API 的请求参数格式和响应 JSON 格式，由 FastAPI 自�
 |------|---------|------|---------|
 | `router.py` | `/api/v1` | 总路由注册，将所有子模块路由挂载到 `/api/v1` 下 | ✅ 已实现 |
 | `v1/history.py` | `/api/v1/history` | 执行明细：`GET /history` 分页筛选（未选批次时默认最近 30 批；已传非空 `start_time_contains` 或已选非空 `case_name` / `case_name_contains` 且无批次 IN 时不注入，见 Spec 08 §3.1 / §3.1.1；各维度可选 `*_contains` 子串）；`GET /history/batch-report` 轮次通报；`GET /history/oh-daily-export` OH 日报 TSV（格式见 `constants/oh_daily_export_table.py`）；`POST /history/failure-process` 失败标注（仍为 bug 且跟踪人变更时可向新跟踪人发 WeLink）；`POST /history/inherit-failure-reason` 继承；`POST /history/one-click-analyze` 一键分析（整批 bug）；`POST /history/one-click-bug-notify` 一键通知（WeLink，spec/13） | ✅ 已实现 |
+| `v1/app.py` | `/api/v1/app` | 前端只读配置：`GET /app/frontend-config`（测试代码仓、取包地址模板等，来自 `.env`） | ✅ 已实现 |
 | `v1/auth.py` | `/api/v1/auth` | 认证接口（登录/登出） | 🔲 占位 |
 | `v1/dashboard.py` | `/api/v1/dashboard` | 数据看板接口 | 🔲 占位 |
 | `v1/overview.py` | `/api/v1/overview` | 分组概览接口 | 🔲 占位 |

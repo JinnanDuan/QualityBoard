@@ -198,6 +198,14 @@ WELINK_CARD_INI_PATH=
 
 # 一键通知 WeLink 卡片中的「详细执行历史」链接：填写用户浏览器可访问的根地址（无尾部 /）
 PUBLIC_APP_URL=https://your-report-host.example.com
+
+# 详细执行历史 Drawer：测试代码仓（留空则展示「暂无」）
+TEST_CODE_REPO_URL=https://your-code-repo.example.com
+
+# 取包地址：模板与 mac/oh 包名（测试、开发环境可分别配置）
+PACKAGE_INIT_URL=https://clouddragon.huawei.com/artifact/artifactcenter/product?repoKey=product_generic&path=vnext%2Fdaily%2Frolling_test%2Fsmoke%2Fcode_branch%2Fstart_time%2Fpackage_name&coordinate=vnext&packageType=Generic&fileType=file&from=link
+PACKAGE_NAME_MAC=bitfun_ide_smoke_test_macos_arm64.dmg
+PACKAGE_NAME_OH=bitfun_ide_uitest_ohos_aarch64.hap
 ```
 
 ### 4.4 启动后端

@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     # 站点对外根 URL（无尾部斜杠），用于一键通知 WeLink 卡片内 /history 绝对链接
     PUBLIC_APP_URL: str = ""
 
+    # 详细执行历史 Drawer：测试代码仓链接（空则前端展示「暂无」）
+    TEST_CODE_REPO_URL: str = ""
+    # 取包地址：模板 URL，占位符 code_branch / start_time / package_name
+    PACKAGE_INIT_URL: str = ""
+    PACKAGE_NAME_MAC: str = ""
+    PACKAGE_NAME_OH: str = ""
+
     # AI 失败分析：main_module → 仓库映射（YAML，模板见 config/module_repo_mapping.yaml.example）
     AI_MODULE_REPO_MAPPING_PATH: str = ""
     # AI 失败分析：AIFA 服务地址（不含 /v1/analyze）
