@@ -56,6 +56,21 @@ async def get_batch_report(db: AsyncSession, start_time: str) -> BatchReportResp
     failed = int(agg_row.failed or 0)
     skip = int(agg_row.skip or 0)
 
+    branch_stmt = (
+        select(Ph.code_branch)
+        .where(Ph.start_time == batch)
+        .where(Ph.code_branch.isnot(None))
+        .where(func.trim(Ph.code_branch) != "")
+        .distinct()
+        .order_by(Ph.code_branch)
+    )
+    branch_rows = (await db.execute(branch_stmt)).scalars().all()
+    code_branch: Optional[str] = None
+    if branch_rows:
+        branches = [str(b).strip() for b in branch_rows if b and str(b).strip()]
+        if branches:
+            code_branch = "、".join(branches)
+
     # ----- 2) bug 归因 × 主模块（单批次内数据量可控，使用 JOIN）-----
     bug_type = func.lower(func.trim(Pfr.failed_type))
     main_mod = func.coalesce(func.nullif(func.trim(Ph.main_module), ""), "")
@@ -150,6 +165,7 @@ async def get_batch_report(db: AsyncSession, start_time: str) -> BatchReportResp
 
     return BatchReportResponse(
         start_time=batch,
+        code_branch=code_branch,
         total=total,
         passed=passed,
         failed=failed,

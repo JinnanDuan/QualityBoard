@@ -36,6 +36,10 @@ class BatchReportResponse(BaseModel):
     model_config = {"from_attributes": True}
 
     start_time: str = Field(..., description="轮次（批次）")
+    code_branch: Optional[str] = Field(
+        None,
+        description="构建分支；同批次多分支时用顿号拼接，无则 None",
+    )
     total: int = Field(..., ge=0)
     passed: int = Field(..., ge=0)
     failed: int = Field(..., ge=0, description="failed + error")

@@ -64,6 +64,7 @@ function buildRollingReportMarkdown(data: BatchReportResponse): string {
   const lines: string[] = [];
   lines.push("【rolling线看护进展通告】");
   lines.push(`batch：${data.start_time}`);
+  lines.push(`构建分支：${data.code_branch ?? "—"}`);
   lines.push(
     `用例总数：${data.total}，成功：${data.passed}，失败：${data.failed}，跳过：${data.skip}`,
   );
