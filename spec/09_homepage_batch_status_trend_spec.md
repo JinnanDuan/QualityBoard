@@ -127,7 +127,9 @@
 ### 3.7 交互
 
 - **图例**：支持点击图例切换显示/隐藏对应折线系列。
-- **点击数据点**：点击某批次的数据点，跳转到 History 页（`/history`），URL 带筛选参数 `?start_time=批次值`（可附加 `code_branch` 以保持筛选一致性），直接展示该批次的用例明细。
+- **点击数据点**：按所点折线系列区分跳转目标（同一 `start_time` 仅对应一个 `code_branch`，跳转**不带** `code_branch` 参数）：
+  - **失败用例数**折线：跳转 History（`/history`），URL 为 `?start_time=批次值&case_result=failed&case_result=error`，预填「执行结果」为失败与异常，直接展示该批次待跟进用例。
+  - **总用例数**折线：跳转 History，URL 为 `?start_time=批次值`，展示该批次全部用例明细。
 
 ### 3.8 数据范围
 
