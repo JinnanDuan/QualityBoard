@@ -202,6 +202,7 @@ export interface BatchReportPlatformGroup {
 
 export interface BatchReportResponse {
   start_time: string;
+  code_branch: string | null;
   total: number;
   passed: number;
   failed: number;
