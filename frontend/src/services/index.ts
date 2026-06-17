@@ -350,6 +350,19 @@ export const historyApi = {
 
 // --- Dashboard API ---
 
+/** GET /app/frontend-config 前端只读配置 */
+export interface FrontendConfig {
+  test_code_repo_url: string | null;
+  package_init_url: string | null;
+  package_name_mac: string | null;
+  package_name_oh: string | null;
+}
+
+export const appApi = {
+  frontendConfig: (): Promise<FrontendConfig> =>
+    request.get("/app/frontend-config") as Promise<FrontendConfig>,
+};
+
 export interface LatestBatchItem {
   batch: string;
   total_case_num: number;
