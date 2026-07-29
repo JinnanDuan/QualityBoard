@@ -60,10 +60,27 @@ async def _mysql_release_lock(db: AsyncSession, lock_name: str) -> None:
     await db.execute(text("SELECT RELEASE_LOCK(:n)"), {"n": lock_name})
 
 
+_LIKE_ESCAPE_CHAR = "\\"
+_DEFAULT_BATCH_OPTIONS_LIMIT = 100
+
+
+def _like_escape_literal(value: str) -> str:
+    return (
+        value.replace(_LIKE_ESCAPE_CHAR, _LIKE_ESCAPE_CHAR + _LIKE_ESCAPE_CHAR)
+        .replace("%", _LIKE_ESCAPE_CHAR + "%")
+        .replace("_", _LIKE_ESCAPE_CHAR + "_")
+    )
+
+
 async def get_inherit_batch_options(
-    db: AsyncSession, exclude_batch: Optional[str] = None
+    db: AsyncSession,
+    exclude_batch: Optional[str] = None,
+    q: Optional[str] = None,
 ) -> InheritBatchOptionsResponse:
-    """获取继承弹窗的批次选项，排除当前批次，按时间倒序。仅返回 20 开头的批次（与历史列表默认逻辑一致）。"""
+    """获取继承弹窗的批次选项，排除当前批次，按时间倒序。仅返回 20 开头的批次。
+
+    无关键词时返回最近 100 个去重批次；有关键词时按 start_time 子串在全库检索（仍最多 100 条）。
+    """
     stmt = (
         select(ph.start_time)
         .where(ph.start_time.is_not(None))
@@ -71,10 +88,14 @@ async def get_inherit_batch_options(
         .where(ph.start_time.like("20%"))
         .distinct()
         .order_by(ph.start_time.desc())
-        .limit(100)
+        .limit(_DEFAULT_BATCH_OPTIONS_LIMIT)
     )
     if exclude_batch and str(exclude_batch).strip():
         stmt = stmt.where(ph.start_time != exclude_batch.strip())
+    q_stripped = str(q).strip() if q is not None else ""
+    if q_stripped:
+        pattern = f"%{_like_escape_literal(q_stripped)}%"
+        stmt = stmt.where(ph.start_time.like(pattern, escape=_LIKE_ESCAPE_CHAR))
     result = await db.execute(stmt)
     batches = [r[0] for r in result.all() if r[0]]
     return InheritBatchOptionsResponse(batches=batches)

@@ -315,6 +315,8 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const [inheritSubmitLoading, setInheritSubmitLoading] = useState(false);
   /** 继承提交进行中时用于中止 HTTP，避免点取消后仍占服务端 GET_LOCK */
   const inheritAbortRef = useRef<AbortController | null>(null);
+  /** 源批次远程搜索防抖 */
+  const inheritBatchSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [oneClickLoading, setOneClickLoading] = useState(false);
   const [bugNotifyLoading, setBugNotifyLoading] = useState(false);
   const [reportModalVisible, setReportModalVisible] = useState(false);
@@ -955,6 +957,32 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
     processForm.resetFields();
   };
 
+  const fetchInheritBatchOptions = async (q?: string, showError = false) => {
+    setInheritBatchOptionsLoading(true);
+    try {
+      const res = await historyApi.inheritBatchOptions(currentBatch, q);
+      setInheritBatchOptions(res.batches ?? []);
+    } catch (e: unknown) {
+      setInheritBatchOptions([]);
+      if (showError) {
+        const err = e as { response?: { data?: { detail?: string } }; message?: string };
+        message.error(err?.response?.data?.detail || err?.message || "获取批次选项失败");
+      }
+    } finally {
+      setInheritBatchOptionsLoading(false);
+    }
+  };
+
+  const handleInheritBatchSearch = (input: string) => {
+    if (inheritBatchSearchTimerRef.current) {
+      clearTimeout(inheritBatchSearchTimerRef.current);
+    }
+    inheritBatchSearchTimerRef.current = setTimeout(() => {
+      const trimmed = input.trim();
+      void fetchInheritBatchOptions(trimmed || undefined);
+    }, 300);
+  };
+
   const openInheritModal = async () => {
     if (!processBtnEnabled) return;
     inheritAbortRef.current?.abort();
@@ -969,16 +997,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
       source_pfr_id: undefined,
     });
     if (showBatchDimension) {
-      setInheritBatchOptionsLoading(true);
-      try {
-        const res = await historyApi.inheritBatchOptions(currentBatch);
-        setInheritBatchOptions(res.batches ?? []);
-      } catch (e: unknown) {
-        const err = e as { response?: { data?: { detail?: string } }; message?: string };
-        message.error(err?.response?.data?.detail || err?.message || "获取批次选项失败");
-      } finally {
-        setInheritBatchOptionsLoading(false);
-      }
+      await fetchInheritBatchOptions(undefined, true);
     } else {
       setInheritSourceOptionsLoading(true);
       try {
@@ -1051,6 +1070,10 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
   const handleInheritModalCancel = () => {
     inheritAbortRef.current?.abort();
     inheritAbortRef.current = null;
+    if (inheritBatchSearchTimerRef.current) {
+      clearTimeout(inheritBatchSearchTimerRef.current);
+      inheritBatchSearchTimerRef.current = null;
+    }
     setInheritSubmitLoading(false);
     setInheritModalVisible(false);
     inheritForm.resetFields();
@@ -2316,15 +2339,7 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
               inheritForm.setFieldValue("source_pfr_id", undefined);
               setInheritSourceRecords([]);
               if (all.inherit_mode === "batch" && showBatchDimension) {
-                setInheritBatchOptionsLoading(true);
-                try {
-                  const res = await historyApi.inheritBatchOptions(currentBatch);
-                  setInheritBatchOptions(res.batches ?? []);
-                } catch {
-                  setInheritBatchOptions([]);
-                } finally {
-                  setInheritBatchOptionsLoading(false);
-                }
+                await fetchInheritBatchOptions();
               } else {
                 fetchInheritSourceOptions();
               }
@@ -2367,13 +2382,17 @@ export default function HistoryPage({ drilldown = false }: HistoryPageProps) {
               rules={[{ required: true, message: "请选择源批次" }]}
             >
               <Select
-                placeholder="请选择要继承的历史批次"
+                placeholder="请选择或输入批次搜索"
                 allowClear
                 showSearch
                 loading={inheritBatchOptionsLoading}
-                filterOption={(input, option) =>
-                  (option?.label ?? "").toString().toLowerCase().includes(input.toLowerCase())
-                }
+                filterOption={false}
+                onSearch={handleInheritBatchSearch}
+                onDropdownVisibleChange={(open) => {
+                  if (open && inheritBatchOptions.length === 0) {
+                    void fetchInheritBatchOptions();
+                  }
+                }}
                 options={inheritBatchOptions.map((v) => ({ label: v, value: v }))}
               />
             </Form.Item>

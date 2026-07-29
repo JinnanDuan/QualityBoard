@@ -102,11 +102,12 @@ async def post_failure_process(
 @router.get("/inherit-batch-options", response_model=InheritBatchOptionsResponse)
 async def get_inherit_batch_options_endpoint(
     exclude_batch: Optional[str] = Query(None, description="排除的批次"),
+    q: Optional[str] = Query(None, max_length=200, description="批次子串搜索；为空时返回最近 100 个"),
     db: AsyncSession = Depends(get_db),
     payload: dict = Depends(get_current_user),
 ):
-    """获取继承弹窗的批次选项，排除当前批次，按时间倒序。"""
-    return await get_inherit_batch_options(db, exclude_batch)
+    """获取继承弹窗的批次选项，排除当前批次，按时间倒序；支持 q 全库子串搜索。"""
+    return await get_inherit_batch_options(db, exclude_batch, q)
 
 
 @router.get("/inherit-source-options", response_model=InheritSourceOptionsResponse)
