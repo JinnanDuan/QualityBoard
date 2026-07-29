@@ -278,9 +278,11 @@ export const historyApi = {
   failureProcess(data: FailureProcessRequest): Promise<{ success: boolean; message: string }> {
     return request.post("/history/failure-process", data) as any;
   },
-  /** 获取继承弹窗批次选项 */
-  inheritBatchOptions(excludeBatch?: string): Promise<{ batches: string[] }> {
-    const params = excludeBatch ? { exclude_batch: excludeBatch } : {};
+  /** 获取继承弹窗批次选项；q 为空返回最近 100 批，有值则按子串全库搜索 */
+  inheritBatchOptions(excludeBatch?: string, q?: string): Promise<{ batches: string[] }> {
+    const params: Record<string, string> = {};
+    if (excludeBatch) params.exclude_batch = excludeBatch;
+    if (q && q.trim()) params.q = q.trim();
     return request.get("/history/inherit-batch-options", { params }) as any;
   },
   /** 获取继承弹窗用例维度源选择三字段选项 */
